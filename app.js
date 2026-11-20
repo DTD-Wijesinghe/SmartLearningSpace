@@ -194,29 +194,40 @@
   function moduleLive(services, route, manage, invite, enrolled) {
     if (!services?.enabled.live && !invite && !manage) return '';
     const session = services?.live;
-    const active = session && (!invite || invite === session.id);
+    const active = session && (manage || enrolled) && (!invite || invite === session.id);
     const roomId = route.split('/')[1];
     const joinLink = active && manage ? new URL('/modules/' + roomId + '?live=' + session.id, location.origin).href : '';
-    return `<section class="module-section panel provider-panel" id="live-classroom" tabindex="-1" data-live-module="${route}"><h2>Live classroom</h2>
+    return `<section class="module-section panel provider-panel classroom" id="live-classroom" tabindex="-1" data-live-module="${route}">
+      <header class="classroom-header"><div><h2>Live classroom</h2>
+        ${active ? `<p class="classroom-title">${escape(session.title)}</p>` : ''}</div>
+        ${active ? '<span class="classroom-state">Room open</span>' : ''}
+      </header>
       ${invite && !manage && !enrolled ? '<p>Only students already enrolled in this module can use this invitation.</p>'
         : !services?.enabled.live ? '<p class="muted">Live classroom service is currently unavailable.</p>'
-        : active ? `<p>${escape(session.title)}</p><div class="actions">
-          <button type="button" data-provider-action="${route}/join_live" data-session="${escape(session.id)}">${manage ? 'Join as teacher' : 'Join live class'}</button>
-          ${manage ? `<button type="button" data-provider-action="${route}/end_live" data-session="${escape(session.id)}">End class</button>` : ''}
-          </div>${joinLink ? `<label>Student join link<input type="url" readonly data-live-link value="${escape(joinLink)}"></label>
-          <button type="button" data-live-control="copy">Copy join link</button>` : ''}`
+        : active ? `<div class="classroom-stage">
+          <div class="live-media" data-live-media></div>
+          <p class="classroom-placeholder">${manage ? 'Your camera or shared screen will appear here.' : 'The teacher’s video or shared screen will appear here.'}</p>
+        </div>
+        <div class="classroom-toolbar">
+          <div class="classroom-controls" data-live-host hidden>
+            <button class="classroom-control" type="button" data-live-control="mic" aria-pressed="false">Turn on microphone</button>
+            <button class="classroom-control" type="button" data-live-control="camera" aria-pressed="false">Turn on camera</button>
+            <button class="classroom-control" type="button" data-live-control="screen" aria-pressed="false">Share screen</button>
+            <button class="classroom-control" type="button" data-live-control="record" aria-pressed="false">Record class</button>
+          </div>
+          <div class="classroom-controls">
+            <button class="primary" type="button" data-provider-action="${route}/join_live" data-session="${escape(session.id)}">${manage ? 'Join as teacher' : 'Join live class'}</button>
+            <button class="classroom-control" type="button" data-live-control="audio" hidden>Enable class audio</button>
+            <button class="classroom-control" type="button" data-live-control="leave" hidden>Leave room</button>
+            ${manage ? `<button class="classroom-end" type="button" data-provider-action="${route}/end_live" data-session="${escape(session.id)}">End class</button>` : ''}
+          </div>
+        </div>
+        ${joinLink ? `<div class="classroom-invite"><label>Student join link<input type="url" readonly data-live-link value="${escape(joinLink)}"></label>
+          <button class="classroom-control" type="button" data-live-control="copy">Copy join link</button></div>` : ''}`
         : invite ? '<p>This live class has ended or the invite is no longer valid.</p>'
-        : manage ? `<form data-live-start="${route}/start_live"><label>Class title<input name="title" maxlength="160" required></label>
+        : manage ? `<form class="classroom-start" data-live-start="${route}/start_live"><label>Class title<input name="title" maxlength="160" required></label>
           <button class="primary" type="submit">Start private class</button></form>` : '<p>No active live class.</p>'}
-      <div class="actions" data-live-host hidden>
-        <button type="button" data-live-control="mic" aria-pressed="false">Turn on microphone</button>
-        <button type="button" data-live-control="camera" aria-pressed="false">Turn on camera</button>
-        <button type="button" data-live-control="screen" aria-pressed="false">Share screen</button>
-        <button type="button" data-live-control="record" aria-pressed="false">Record class</button>
-      </div>
-      <button type="button" data-live-control="audio" hidden>Enable class audio</button>
-      <button type="button" data-live-control="leave" hidden>Leave room</button>
-      <p class="provider-status" role="status"></p><p data-live-download hidden></p><div class="live-media" data-live-media></div></section>`;
+      <p class="provider-status" role="status"></p><p data-live-download hidden></p></section>`;
   }
 
   function uploadFile(url, file, type, progress) {
@@ -397,6 +408,7 @@
     const audio = panel.querySelector('[data-live-control="audio"]');
     const leave = panel.querySelector('[data-live-control="leave"]');
     const host = panel.querySelector('[data-live-host]');
+    const roomState = panel.querySelector('.classroom-state');
     const detach = track => track.detach().forEach(element => element.remove());
     const attach = (track, publication) => {
       const element = track.attach();
@@ -428,6 +440,8 @@
       media.replaceChildren();
       host.hidden = audio.hidden = leave.hidden = true;
       panel.querySelector('[data-session]')?.removeAttribute('hidden');
+      roomState.textContent = 'Room open';
+      roomState.removeAttribute('data-connected');
       status.textContent = 'Disconnected from the live class.';
     });
     await room.connect(grant.url, grant.token);
@@ -438,6 +452,8 @@
     host.hidden = !grant.host;
     audio.hidden = room.canPlaybackAudio;
     panel.querySelector('[data-session]')?.setAttribute('hidden', '');
+    roomState.textContent = 'Connected';
+    roomState.dataset.connected = '';
     updateLiveControls(panel);
     status.textContent = grant.host ? 'Connected. Turn on your microphone, camera, or screen when ready.' : 'Connected to the private live class.';
   }
