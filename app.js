@@ -60,7 +60,13 @@
       const register = path === '/register';
       const fields = `${register ? '<label>Name<input name="name" autocomplete="name" maxlength="160" required></label>' : ''}
         <label>Email<input name="email" type="email" autocomplete="username" required></label>
-        <label>Password<input name="password" type="password" autocomplete="${register ? 'new-password' : 'current-password'}" ${register ? 'minlength="12"' : ''} maxlength="128" required></label>
+        <div class="password-field">
+          <label for="auth-password">Password</label>
+          <div class="password-row">
+            <input id="auth-password" name="password" type="password" autocomplete="${register ? 'new-password' : 'current-password'}" ${register ? 'minlength="12"' : ''} maxlength="128" required>
+            <button type="button" data-password-toggle aria-controls="auth-password">Show password</button>
+          </div>
+        </div>
         ${register ? '<label class="checkbox"><input name="teacher" type="checkbox"> Request a teacher account</label>' : ''}`;
       main.innerHTML = `<section class="auth panel"><h1>${register ? 'Create an account' : 'Sign in'}</h1>
         ${form(register ? 'register' : 'login', fields, register ? 'Register' : 'Sign in')}
@@ -134,12 +140,17 @@
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-course],[data-retry]');
+    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-course],[data-retry],[data-password-toggle]');
     if (!control) return;
     if (control.hasAttribute('data-link')) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       go(control.getAttribute('href'));
+    } else if (control.hasAttribute('data-password-toggle')) {
+      const password = control.form.elements.password;
+      const visible = password.type === 'password';
+      password.type = visible ? 'text' : 'password';
+      control.textContent = visible ? 'Hide password' : 'Show password';
     } else if (control.hasAttribute('data-theme')) {
       document.documentElement.classList.toggle('dark');
       localStorage.setItem('sls-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
