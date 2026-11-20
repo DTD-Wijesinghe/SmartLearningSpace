@@ -1,0 +1,97 @@
+{
+  "users": [
+    {
+      "email": "student@smartlearning.local",
+      "role": "student",
+      "name": "Alex Morgan"
+    },
+    {
+      "email": "teacher@smartlearning.local",
+      "role": "teacher",
+      "name": "Maya Chen"
+    },
+    {
+      "email": "admin@smartlearning.local",
+      "role": "admin",
+      "name": "Jordan Lee"
+    }
+  ],
+  "courses": [
+    {
+      "id": "course-design",
+      "title": "Product design fundamentals",
+      "status": "in_progress",
+      "progress": 72,
+      "lessons": 12,
+      "duration": "6h 40m",
+      "teacher": "Maya Chen"
+    },
+    {
+      "id": "course-data",
+      "title": "Data storytelling with clarity",
+      "status": "up_next",
+      "progress": 18,
+      "lessons": 8,
+      "duration": "3h 15m",
+      "teacher": "Rohan Perera"
+    },
+    {
+      "id": "course-systems",
+      "title": "Design systems in practice",
+      "status": "saved",
+      "progress": 0,
+      "lessons": 24,
+      "duration": "8h 10m",
+      "teacher": "Maya Chen"
+    }
+  ],
+  "resources": [
+    {
+      "id": "resource-checkpoint",
+      "name": "Design principles checkpoint",
+      "type": "PDF",
+      "updated": "Today"
+    },
+    {
+      "id": "resource-color",
+      "name": "Color theory notes",
+      "type": "NOTES",
+      "updated": "Yesterday"
+    },
+    {
+      "id": "resource-narrative",
+      "name": "Data narrative brief",
+      "type": "DOC",
+      "updated": "Nov 18"
+    }
+  ],
+  "events": [
+    {
+      "id": "event-critique",
+      "day": 22,
+      "month": "NOV",
+      "label": "LIVE CLASS",
+      "title": "Critique & feedback session",
+      "detail": "10:00 AM · Product design",
+      "kind": "live"
+    },
+    {
+      "id": "event-assignment",
+      "day": 25,
+      "month": "NOV",
+      "label": "DUE SOON",
+      "title": "Data narrative assignment",
+      "detail": "11:59 PM · Data storytelling",
+      "kind": "due"
+    },
+    {
+      "id": "event-exam",
+      "day": 28,
+      "month": "NOV",
+      "label": "EXAM",
+      "title": "Design principles checkpoint",
+      "detail": "45 minutes · Product design",
+      "kind": "exam"
+    }
+  ]
+}

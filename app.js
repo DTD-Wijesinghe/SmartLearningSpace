@@ -1,25 +1,199 @@
-const toast = (message) => { const el=document.getElementById('toast'); el.textContent=message; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2600); };
-const loginScreen=document.getElementById('loginScreen');
-const appShell=document.querySelector('.app-shell');
-const roles={student:{label:'Student',name:'Alex',banner:'Keep your learning momentum',copy:'Two focused sessions today can keep your week on track.',kicker:'STUDENT VIEW',profile:'Student workspace'},teacher:{label:'Teacher',name:'Maya',banner:'Your teaching studio is in flow',copy:'Two courses need your attention this week.',kicker:'TEACHER VIEW',profile:'Teaching workspace'},admin:{label:'System Admin',name:'Jordan',banner:'Your platform overview is ready',copy:'Review health, approvals, and usage across your learning space.',kicker:'ADMIN VIEW',profile:'Operations workspace'}};
-let currentRole='student';
-const applyRoleUI=(role)=>{currentRole=role; const data=roles[role]; document.getElementById('greeting').innerHTML=`Good morning, ${data.name} <span>✦</span>`; document.querySelector('.banner-kicker').textContent=data.kicker; document.querySelector('.role-banner strong').textContent=data.banner; document.querySelector('.role-banner p').textContent=data.copy; document.querySelector('.profile-mini small').textContent=data.profile; const labels=role==='admin'?['Registered users','Active courses','AI requests','System health']:role==='teacher'?['Active students','Published courses','Pending grading','Course engagement']:['Learning progress','Focus time','Completed lessons','Current streak']; document.querySelectorAll('.stat-card>span').forEach((el,i)=>el.textContent=labels[i]);};
-const openWorkspace=(role)=>{applyRoleUI(role); loginScreen.style.display='none'; appShell.classList.add('ready'); toast(`${roles[role].label} workspace loaded.`);};
-document.getElementById('loginForm').addEventListener('submit',(event)=>{event.preventDefault(); const email=document.getElementById('emailInput').value.toLowerCase(); const password=document.getElementById('passwordInput').value; const role=email.startsWith('admin@')?'admin':email.startsWith('teacher@')?'teacher':email.startsWith('student@')?'student':null; if(!role||password.length<4){document.getElementById('loginError').textContent='For local testing, use one of the demo accounts below.';return;} openWorkspace(role);});
-document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener('click',()=>{const role=button.dataset.demo; document.getElementById('emailInput').value=`${role}@smartlearning.local`; document.getElementById('passwordInput').value='demo1234'; document.getElementById('loginError').textContent=''; openWorkspace(role);}));
-document.querySelector('.profile-mini').addEventListener('click',(event)=>{if(event.target.closest('.icon-button')){appShell.classList.remove('ready');loginScreen.style.display='grid';document.getElementById('passwordInput').value='';toast('Signed out of the local demo workspace.');}});
-const modal=document.getElementById('modal');
-const content=document.querySelector('.content');
-const overviewMarkup=content.innerHTML;
-const pageShell=(eyebrow,title,subtitle,body)=>`<section class="page-view"><p class="eyebrow">${eyebrow}</p><div class="page-title-row"><div><h1>${title}</h1><p class="subhead">${subtitle}</p></div><button class="primary-button" data-action="primary">+ Create new</button></div>${body}</section><footer><span>SmartLearningSpace <b>·</b> Your Space for Smarter Learning.</span><span>Built for thoughtful progress <span class="footer-spark">✦</span></span></footer>`;
-const renderView=(view)=>{if(view==='overview'){content.innerHTML=overviewMarkup; applyRoleUI(currentRole); bindDynamicActions(); return;} const pages={courses:pageShell('LEARNING LIBRARY','My courses','Your active learning spaces, organized for momentum.',`<div class="toolbar"><input class="search-field" placeholder="Search courses" /><button class="filter-button">All courses⌄</button></div><div class="page-card-grid"><article class="page-card"><div class="card-accent indigo"></div><span class="pill blue-pill">IN PROGRESS</span><h3>Product design fundamentals</h3><p>12 lessons · 72% complete</p><button data-action="open-course">Open course →</button></article><article class="page-card"><div class="card-accent peach"></div><span class="pill mint-pill">UP NEXT</span><h3>Data storytelling with clarity</h3><p>8 lessons · 18% complete</p><button data-action="open-course">Open course →</button></article><article class="page-card"><div class="card-accent violet"></div><span class="pill gray-pill">SAVED</span><h3>Design systems in practice</h3><p>24 lessons · Start anytime</p><button data-action="open-course">View details →</button></article></div>`),calendar:pageShell('YOUR SCHEDULE','Calendar','Keep classes, deadlines, and focused work in one view.',`<div class="calendar-layout"><div class="calendar-card"><div class="calendar-header"><button class="icon-button">‹</button><strong>November 2026</strong><button class="icon-button">›</button></div><div class="calendar-days">${['M','T','W','T','F','S','S'].map(d=>`<span>${d}</span>`).join('')}</div><div class="calendar-grid">${Array.from({length:30},(_,i)=>`<button class="day ${i+1===20?'selected':''} ${[22,25,28].includes(i+1)?'has-event':''}">${i+1}</button>`).join('')}</div></div><div class="agenda-card"><div class="panel-heading"><div><h2>Upcoming</h2><p>Next seven days</p></div></div><div class="agenda-row"><strong>22<br><small>NOV</small></strong><div><span class="event-label live">LIVE CLASS</span><h3>Critique & feedback session</h3><p>10:00 AM · Product design</p></div></div><div class="agenda-row"><strong>25<br><small>NOV</small></strong><div><span class="event-label due">DUE SOON</span><h3>Data narrative assignment</h3><p>11:59 PM · Data storytelling</p></div></div></div></div>`),analytics:pageShell('INSIGHTS','Analytics','A clear view of progress across your learning workspace.',`<div class="analytics-grid"><article class="metric-card"><span>Weekly focus time</span><strong>12.4h</strong><p class="positive">+2.1h vs last week</p><div class="bar-chart">${[35,50,42,72,58,88,64].map(h=>`<i style="height:${h}%"></i>`).join('')}</div></article><article class="metric-card"><span>Course completion</span><strong>68%</strong><p class="positive">+8.4% this week</p><div class="donut"><span>68%</span></div></article><article class="metric-card wide"><span>Learning activity</span><strong>Consistent momentum</strong><div class="activity-line"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><p>Most active on Tuesday and Thursday mornings.</p></article></div>`),resources:pageShell('YOUR SPACE','Resources','Notes, documents, and saved materials in one place.',`<div class="toolbar"><input class="search-field" placeholder="Search resources" /><button class="primary-button" data-action="upload">Upload resource</button></div><div class="resource-table"><div class="resource-row header"><span>Name</span><span>Type</span><span>Updated</span><span>Action</span></div>${[['Design principles checkpoint','PDF','Today'],['Color theory notes','NOTES','Yesterday'],['Data narrative brief','DOC','Nov 18']].map(r=>`<div class="resource-row"><strong>▤ ${r[0]}</strong><span class="file-type">${r[1]}</span><span>${r[2]}</span><button data-action="open-resource">Open →</button></div>`).join('')}</div>`)}; content.innerHTML=pages[view]||pages.courses; bindDynamicActions(); toast(`${view[0].toUpperCase()+view.slice(1)} page loaded.`);};
-const bindDynamicActions=()=>{document.querySelectorAll('[data-action]').forEach(el=>{if(el.dataset.bound)return;el.dataset.bound='true';el.addEventListener('click',()=>{const action=el.dataset.action;toast(action==='upload'?'Upload flow ready — connect private storage to continue.':action==='open-resource'?'Resource viewer ready — connect protected file access to open it.':action==='open-course'?'Course workspace ready — connect course data to continue.':'Create flow ready — connect your backend to save new records.');});}); const ask=document.getElementById('askButton');if(ask&&!ask.dataset.bound){ask.dataset.bound='true';ask.addEventListener('click',()=>modal.classList.add('open'));} const chat=document.getElementById('chatButton');if(chat&&!chat.dataset.bound){chat.dataset.bound='true';chat.addEventListener('click',()=>modal.classList.add('open'));} const close=document.getElementById('closeModal');if(close&&!close.dataset.bound){close.dataset.bound='true';close.addEventListener('click',()=>modal.classList.remove('open'));} const send=document.getElementById('sendPrompt');if(send&&!send.dataset.bound){send.dataset.bound='true';send.addEventListener('click',()=>{modal.classList.remove('open');toast('Demo prompt queued — connect your AI provider for live answers.');});}};
-document.addEventListener('click',(event)=>{if(event.target.closest('#searchButton'))toast('Search is ready for the connected workspace.');if(event.target.closest('#notificationButton'))toast('No new notifications.');});
-document.querySelectorAll('[data-view]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active')); if(btn.classList.contains('nav-item'))btn.classList.add('active'); const view=btn.dataset.view; document.getElementById('crumb').textContent=view[0].toUpperCase()+view.slice(1); renderView(view); document.getElementById('sidebar').classList.remove('open');}));
-document.getElementById('menuBtn').addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('open'));
-document.getElementById('askButton').addEventListener('click',()=>modal.classList.add('open'));
-document.getElementById('chatButton').addEventListener('click',()=>modal.classList.add('open'));
-document.getElementById('closeModal').addEventListener('click',()=>modal.classList.remove('open'));
-document.getElementById('sendPrompt').addEventListener('click',()=>{modal.classList.remove('open');toast('Demo prompt queued — connect your AI provider for live answers.');});
-document.getElementById('continueButton').addEventListener('click',()=>toast('Opening “Designing with intention” — lesson resume state preserved.'));
-document.querySelectorAll('.suggestion-row button').forEach(btn=>btn.addEventListener('click',()=>{modal.classList.add('open');}));
+'use strict';
+
+(function boot() {
+  const main = document.querySelector('#main');
+  const nav = document.querySelector('#account-nav');
+  let token = sessionStorage.getItem('sls-session');
+  let user;
+  let revision = 0;
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const dashboard = () => `/${user.role}/dashboard`;
+  const labels = { admin: 'Platform administration', teacher: 'Teaching studio', student: 'Learning workspace' };
+
+  async function api(path, data) {
+    const response = await fetch(`/api/${path}`, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: { ...(token && { Authorization: `Bearer ${token}` }),
+        ...(data !== undefined && { 'Content-Type': 'application/json' }) },
+      body: data === undefined ? undefined : JSON.stringify(data),
+    });
+    const result = await response.json();
+    if (!response.ok) throw Object.assign(new Error(result.error), { status: response.status });
+    return result;
+  }
+
+  function go(path, replace = false) {
+    history[replace ? 'replaceState' : 'pushState']({}, '', path);
+    void render();
+  }
+
+  function clearSession() {
+    token = null;
+    user = null;
+    sessionStorage.removeItem('sls-session');
+  }
+
+  function form(action, fields, caption) {
+    return `<form data-submit="${action}">${fields}<button class="primary">${caption}</button><p class="error" role="status"></p></form>`;
+  }
+
+  async function render() {
+    const current = ++revision;
+    const path = location.pathname;
+    nav.innerHTML = `<button data-theme aria-label="Toggle color theme">Theme</button>` + (user
+      ? `<a href="${dashboard()}" data-link>Dashboard</a><button data-logout>Sign out</button>`
+      : '<a href="/login" data-link>Sign in</a><a href="/register" data-link>Register</a>');
+    if (path === '/') {
+      main.innerHTML = `<section class="hero"><div><p class="eyebrow">SmartLearningSpace</p>
+        <h1>Your Space for<br>Smarter Learning.</h1>
+        <p>Create lesson content, publish courses and follow learner progress in one workspace.</p>
+        <a class="primary" href="${user ? dashboard() : '/register'}" data-link>${user ? 'Open workspace' : 'Create an account'}</a></div>
+        <img src="/assets/smartlearning-logo.png" alt=""></section>
+        <section class="tiles"><article><h2>Teach</h2><p>Draft courses and add lessons before publishing.</p></article>
+        <article><h2>Learn</h2><p>Discover courses, enroll and track completed lessons.</p></article>
+        <article><h2>Manage</h2><p>Review teacher applications and see platform activity.</p></article></section>`;
+      return;
+    }
+    if (path === '/login' || path === '/register') {
+      if (user) return go(dashboard(), true);
+      const register = path === '/register';
+      const fields = `${register ? '<label>Name<input name="name" autocomplete="name" maxlength="160" required></label>' : ''}
+        <label>Email<input name="email" type="email" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" autocomplete="${register ? 'new-password' : 'current-password'}" ${register ? 'minlength="12"' : ''} maxlength="128" required></label>
+        ${register ? '<label class="checkbox"><input name="teacher" type="checkbox"> Request a teacher account</label>' : ''}`;
+      main.innerHTML = `<section class="auth panel"><h1>${register ? 'Create an account' : 'Sign in'}</h1>
+        ${form(register ? 'register' : 'login', fields, register ? 'Register' : 'Sign in')}
+        ${register ? '<a href="/login" data-link>Already registered? Sign in</a>' : '<a href="/register" data-link>Create an account</a>'}</section>`;
+      return;
+    }
+    if (!user) return go('/login', true);
+    if (path !== dashboard()) return go(dashboard(), true);
+    main.innerHTML = '<p role="status">Loading dashboard…</p>';
+    try {
+      const [summary, catalog, accounts] = await Promise.all([api('dashboard'), api('courses'),
+        user.role === 'admin' ? api('users') : null]);
+      if (current !== revision) return;
+      const cards = catalog.courses.map(course => `<article class="panel course">
+        <p class="eyebrow">${escape(course.status)}</p><h3>${escape(course.title)}</h3>
+        <p>${escape(course.teacher)} · ${course.lessonCount} lessons</p>
+        ${course.enrolled ? `<progress max="100" value="${course.progress}" aria-label="Completion"></progress>` : ''}
+        <button data-course="${escape(course.id)}">View course</button></article>`).join('');
+      main.innerHTML = `<section class="workspace ${user.role}"><p class="eyebrow">${labels[user.role]}</p>
+        <h1>Welcome, ${escape(user.name)}</h1>
+        <div class="tiles">${Object.entries(summary.stats).map(([key, value]) =>
+          `<article><strong>${escape(value)}</strong><p>${escape(key)}</p></article>`).join('')}</div>
+        ${accounts ? `<h2>User management</h2><ul class="records">${accounts.users.map(account =>
+          `<li><span>${escape(account.name)} · ${escape(account.role)}${account.pending ? ' · Awaiting approval' : ''}${account.suspended ? ' · Suspended' : ''}</span>
+          ${account.pending ? form('users/approve', `<input type="hidden" name="email" value="${escape(account.email)}">`, 'Approve') : ''}
+          ${account.role !== 'admin' ? form('users/suspension', `<input type="hidden" name="email" value="${escape(account.email)}">
+            <input type="hidden" name="suspended" value="${!account.suspended}">`, account.suspended ? 'Reactivate' : 'Suspend') : ''}</li>`).join('')}</ul>` : ''}
+        <h2>${user.role === 'student' ? 'Explore courses' : user.role === 'teacher' ? 'My courses' : 'Course oversight'}</h2>
+        ${user.role === 'teacher' ? `<details class="panel"><summary>Create course</summary>${form('courses',
+          '<label>Course title<input name="title" maxlength="160" required></label>', 'Save draft')}</details>` : ''}
+        <div class="tiles">${cards || '<p>No courses available.</p>'}</div><section id="course-detail" tabindex="-1"></section></section>`;
+    } catch (error) {
+      if (current === revision) showError(error);
+    }
+  }
+
+  function showError(error) {
+    if (error.status === 401 && user) {
+      clearSession();
+      return go('/login', true);
+    }
+    main.innerHTML = `<p class="error" role="status">${escape(error.message)}</p><button data-retry>Try again</button>`;
+  }
+
+  async function openCourse(id) {
+    const current = revision;
+    const detail = document.querySelector('#course-detail');
+    if (!detail) return;
+    detail.textContent = 'Loading course…';
+    try {
+      const { course, lessons, students, completed } = await api(`courses/${id}`);
+      if (current !== revision || !detail.isConnected) return;
+      const route = `courses/${id}`;
+      const manage = user.role === 'teacher' && course.status !== 'suspended';
+      detail.innerHTML = `<article class="panel course-detail"><h2>${escape(course.title)}</h2>
+        ${manage && course.status === 'draft' ? form(`${route}/publish`, '', 'Publish course') : ''}
+        ${manage ? form(`${route}/edit`, `<label>Course title<input name="title" maxlength="160" value="${escape(course.title)}" required></label>`, 'Save title') : ''}
+        ${user.role === 'admin' && ['published', 'in_progress', 'up_next', 'saved'].includes(course.status) ?
+          form(`${route}/suspend`, '', 'Suspend course') : ''}
+        ${manage ? form(`${route}/lessons`, '<label>Lesson title<input name="title" required></label><label>Lesson text<textarea name="text" required></textarea></label>', 'Add lesson') : ''}
+        ${user.role === 'student' && !course.enrolled ? form(`${route}/enroll`, '', 'Enroll') : ''}
+        ${students ? `<p>Enrolled students: ${students.map(student => escape(student.name)).join(', ') || 'None yet'}</p>` : ''}
+        ${lessons.map(lesson => `<section class="lesson"><h3>${escape(lesson.title)}</h3><p>${escape(lesson.text)}</p>
+          ${course.enrolled ? completed.includes(lesson.id) ? '<p>Completed</p>' :
+            form(`${route}/progress`, `<input type="hidden" name="lessonId" value="${escape(lesson.id)}">`, 'Mark complete') : ''}</section>`).join('')}
+        </article>`;
+      detail.focus();
+    } catch (error) {
+      if (current === revision) detail.textContent = error.message;
+    }
+  }
+
+  document.addEventListener('click', async event => {
+    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-course],[data-retry]');
+    if (!control) return;
+    if (control.hasAttribute('data-link')) {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      go(control.getAttribute('href'));
+    } else if (control.hasAttribute('data-theme')) {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('sls-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    } else if (control.hasAttribute('data-logout')) {
+      try { await api('logout', {}); } catch { /* Clear the browser session even if the API is offline. */ }
+      clearSession();
+      go('/login', true);
+    } else if (control.dataset.course) {
+      await openCourse(control.dataset.course);
+    } else {
+      await render();
+    }
+  });
+
+  document.addEventListener('submit', async event => {
+    const element = event.target;
+    if (!element.dataset.submit) return;
+    event.preventDefault();
+    const button = element.querySelector('button');
+    const status = element.querySelector('[role=status]');
+    button.disabled = true;
+    status.textContent = '';
+    const values = Object.fromEntries(new FormData(element));
+    if (values.teacher) values.teacher = true;
+    if ('suspended' in values) values.suspended = values.suspended === 'true';
+    try {
+      const action = element.dataset.submit;
+      const result = await api(action, values);
+      if (action === 'login') {
+        ({ token, user } = result);
+        sessionStorage.setItem('sls-session', token);
+        go(dashboard(), true);
+      } else if (action === 'register') {
+        element.reset();
+        status.textContent = result.pending ? 'Your application is awaiting administrator approval.' : 'Account created. You can sign in.';
+      } else {
+        await render();
+        const courseId = /^courses\/([^/]+)/.exec(action)?.[1];
+        if (courseId) await openCourse(courseId);
+      }
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  window.addEventListener('popstate', render);
+  document.documentElement.classList.toggle('dark', localStorage.getItem('sls-theme') === 'dark');
+  void (async () => {
+    if (token) {
+      try { ({ user } = await api('me')); }
+      catch { clearSession(); }
+    }
+    await render();
+  })();
+})();

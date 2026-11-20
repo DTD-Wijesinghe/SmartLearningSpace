@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+coverage/
+*.log
+*.pem
+*.key
+*.pfx
+*.sql.gz
+/.openai/
+/outputs/
+/work/
