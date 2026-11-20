@@ -12,7 +12,9 @@ Materials are limited to 8 GiB and 500 reservations across this application, wit
 
 ## Private classroom
 
-Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` for a LiveKit project. The app issues room-scoped tokens only to the module teacher and enrolled students. Student tokens can subscribe and have publishing disabled. Start and end rooms from the module page. This release supports a live camera and microphone broadcast. Recording and scheduled events require further work. Verify token issuance, permissions, camera, sound and room closure on a real provider before rollout. [LiveKit quotas](https://docs.livekit.io/deploy/admin/quotas-and-limits/)
+Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` for a LiveKit project. Apply the live class migration to enforce one open room per teacher. Start the room from the module and share its join link. Links identify a specific class. The server checks the student's current enrollment before issuing a subscribe-only token. Teachers can toggle their camera and microphone and share a screen.
+
+The teacher can record their camera, shared screen, and microphone in a supported desktop browser. Recordings stay in the tab until downloaded as a WebM or MP4 file. Keep the tab open until the download starts. A recording ends when the teacher stops recording or leaves, or when it reaches the one-hour or 400 MiB limit. The teacher may upload the downloaded file to a lecture when it meets the lecture upload requirements. Verify live camera, sound, screen sharing, recording playback, and room closure with two signed-in browsers before rollout. [LiveKit quotas](https://docs.livekit.io/deploy/admin/quotas-and-limits/)
 
 ## AI assistant
 

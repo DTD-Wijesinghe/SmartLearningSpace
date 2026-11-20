@@ -64,7 +64,10 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
   return http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
-    const connect = [providers.r2?.origin, providers.live?.origin, providers.live?.origin?.replace(/^wss:/, 'https:')].filter(Boolean).join(' ');
+    const liveOrigin = providers.live?.origin;
+    const liveCloud = liveOrigin && new URL(liveOrigin).hostname.endsWith('.livekit.cloud');
+    const connect = [providers.r2?.origin, liveOrigin, liveOrigin?.replace(/^wss:/, 'https:'),
+      ...(liveCloud ? ['wss://*.livekit.cloud', 'https://*.livekit.cloud'] : [])].filter(Boolean).join(' ');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'self'",
       `connect-src 'self' ${connect}`, `media-src 'self' blob: ${providers.r2?.origin || ''}`,

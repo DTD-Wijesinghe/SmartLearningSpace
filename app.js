@@ -9,7 +9,11 @@
   let courseRevision = 0;
   let capabilities = {};
   let liveRoom;
+  let livePanel;
   let liveKitReady;
+  let classRecorder;
+  let savedRecording;
+  const liveId = value => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(value || '');
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const dashboard = () => `/${user.role}/dashboard`;
@@ -33,6 +37,10 @@
   }
 
   function go(path, replace = false) {
+    if (classRecorder) {
+      if (livePanel) livePanel.querySelector('.provider-status').textContent = 'Stop and save the recording before leaving.';
+      return;
+    }
     liveRoom?.disconnect();
     history[replace ? 'replaceState' : 'pushState']({}, '', path);
     void render();
@@ -40,6 +48,8 @@
   }
 
   function clearSession() {
+    if (savedRecording) URL.revokeObjectURL(savedRecording.url);
+    savedRecording = undefined;
     token = null;
     user = null;
     sessionStorage.removeItem('sls-session');
@@ -181,15 +191,32 @@
       <p class="provider-status" role="status"></p><div data-material-view></div></div>`;
   }
 
-  function moduleLive(services, route, manage) {
-    if (!services.enabled.live) return '';
-    return `<section class="module-section provider-panel"><h2>Live classroom</h2>
-      ${services.live ? `<p>${escape(services.live.title)}</p><button type="button" data-provider-action="${route}/join_live">${manage ? 'Rejoin as host' : 'Join live class'}</button>
-        ${manage ? `<button type="button" data-provider-action="${route}/end_live">End class</button>` : ''}`
-      : manage ? `<form data-live-start="${route}/start_live"><label>Class title<input name="title" maxlength="160" required></label>
-        <button class="primary" type="submit">Start private class</button></form>` : '<p>No active live class.</p>'}
-      <button type="button" data-live-leave hidden>Leave room</button>
-      <p class="provider-status" role="status"></p><div class="live-media" data-live-media></div></section>`;
+  function moduleLive(services, route, manage, invite, enrolled) {
+    if (!services?.enabled.live && !invite && !manage) return '';
+    const session = services?.live;
+    const active = session && (!invite || invite === session.id);
+    const roomId = route.split('/')[1];
+    const joinLink = active && manage ? new URL('/modules/' + roomId + '?live=' + session.id, location.origin).href : '';
+    return `<section class="module-section panel provider-panel" id="live-classroom" tabindex="-1" data-live-module="${route}"><h2>Live classroom</h2>
+      ${invite && !manage && !enrolled ? '<p>Only students already enrolled in this module can use this invitation.</p>'
+        : !services?.enabled.live ? '<p class="muted">Live classroom service is currently unavailable.</p>'
+        : active ? `<p>${escape(session.title)}</p><div class="actions">
+          <button type="button" data-provider-action="${route}/join_live" data-session="${escape(session.id)}">${manage ? 'Join as teacher' : 'Join live class'}</button>
+          ${manage ? `<button type="button" data-provider-action="${route}/end_live" data-session="${escape(session.id)}">End class</button>` : ''}
+          </div>${joinLink ? `<label>Student join link<input type="url" readonly data-live-link value="${escape(joinLink)}"></label>
+          <button type="button" data-live-control="copy">Copy join link</button>` : ''}`
+        : invite ? '<p>This live class has ended or the invite is no longer valid.</p>'
+        : manage ? `<form data-live-start="${route}/start_live"><label>Class title<input name="title" maxlength="160" required></label>
+          <button class="primary" type="submit">Start private class</button></form>` : '<p>No active live class.</p>'}
+      <div class="actions" data-live-host hidden>
+        <button type="button" data-live-control="mic" aria-pressed="false">Turn on microphone</button>
+        <button type="button" data-live-control="camera" aria-pressed="false">Turn on camera</button>
+        <button type="button" data-live-control="screen" aria-pressed="false">Share screen</button>
+        <button type="button" data-live-control="record" aria-pressed="false">Record class</button>
+      </div>
+      <button type="button" data-live-control="audio" hidden>Enable class audio</button>
+      <button type="button" data-live-control="leave" hidden>Leave room</button>
+      <p class="provider-status" role="status"></p><p data-live-download hidden></p><div class="live-media" data-live-media></div></section>`;
   }
 
   function uploadFile(url, file, type, progress) {
@@ -238,36 +265,229 @@
     return liveKitReady;
   }
 
+  function updateLiveControls(panel) {
+    const participant = liveRoom?.localParticipant;
+    const states = [
+      ['mic', participant?.isMicrophoneEnabled, 'Turn on microphone', 'Mute microphone'],
+      ['camera', participant?.isCameraEnabled, 'Turn on camera', 'Turn off camera'],
+      ['screen', participant?.isScreenShareEnabled, 'Share screen', 'Stop sharing'],
+      ['record', Boolean(classRecorder), 'Record class', 'Stop and save recording'],
+    ];
+    for (const [key, enabled, off, on] of states) {
+      const button = panel.querySelector(`[data-live-control="${key}"]`);
+      button.textContent = enabled ? on : off;
+      button.setAttribute('aria-pressed', String(Boolean(enabled)));
+    }
+  }
+
+  function showRecording(panel) {
+    const slot = panel.querySelector('[data-live-download]');
+    if (savedRecording?.module !== panel.dataset.liveModule) return;
+    const link = document.createElement('a');
+    link.href = savedRecording.url;
+    link.download = savedRecording.filename;
+    link.textContent = 'Download class recording';
+    link.dataset.liveControl = 'download';
+    slot.replaceChildren(link);
+    slot.hidden = false;
+  }
+
+  async function startClassRecording(panel) {
+    if (!window.MediaRecorder || !window.AudioContext || !HTMLCanvasElement.prototype.captureStream)
+      throw new Error('Recording requires a desktop browser with MediaRecorder support.');
+    const mimes = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+    const mimeType = mimes.find(type => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) throw new Error('This browser does not support MP4 or WebM recording.');
+    const audio = new AudioContext();
+    const canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    const context = canvas.getContext('2d');
+    const capture = canvas.captureStream(15);
+    const output = audio.createMediaStreamDestination();
+    const silence = audio.createOscillator();
+    const muted = audio.createGain();
+    muted.gain.value = 0;
+    silence.connect(muted).connect(output);
+    silence.start();
+    const stream = new MediaStream([...capture.getVideoTracks(), ...output.stream.getAudioTracks()]);
+    let animation, duration, source, microphone;
+    let size = 0;
+    const chunks = [];
+    const status = panel.querySelector('.provider-status');
+    let recorder;
+    const cleanup = () => {
+      clearInterval(animation);
+      clearTimeout(duration);
+      silence.stop();
+      for (const track of stream.getTracks()) track.stop();
+      void audio.close();
+    };
+    try {
+      await audio.resume();
+      if (!liveRoom || livePanel !== panel) throw new Error('Join the classroom before recording.');
+      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 900000, audioBitsPerSecond: 64000 });
+      const drawVideo = (video, x, y, w, h) => {
+        if (!video || video.readyState < 2 || !video.videoWidth) return;
+        const scale = Math.min(w / video.videoWidth, h / video.videoHeight);
+        const width = video.videoWidth * scale;
+        const height = video.videoHeight * scale;
+        context.drawImage(video, x + (w-width)/2, y + (h-height)/2, width, height);
+      };
+      const draw = () => {
+        context.fillStyle = '#161a2d';
+        context.fillRect(0, 0, 1280, 720);
+        const camera = panel.querySelector('[data-live-source="camera"]:not([hidden])');
+        const screen = panel.querySelector('[data-live-source="screen_share"]:not([hidden])');
+        drawVideo(screen || camera, 0, 0, 1280, 720);
+        if (screen && camera) drawVideo(camera, 980, 540, 280, 160);
+        capture.getVideoTracks()[0].requestFrame?.();
+        const next = liveRoom?.localParticipant.isMicrophoneEnabled
+          ? liveRoom.localParticipant.getTrackPublication('microphone')?.track?.mediaStreamTrack : null;
+        if (next !== microphone) {
+          source?.disconnect();
+          source = next ? audio.createMediaStreamSource(new MediaStream([next])) : null;
+          source?.connect(output);
+          microphone = next;
+        }
+      };
+      recorder.ondataavailable = event => {
+        if (!event.data.size) return;
+        chunks.push(event.data);
+        size += event.data.size;
+        if (size >= 400 * 1024 * 1024 && recorder.state === 'recording') recorder.stop();
+      };
+      recorder.onstop = () => {
+        cleanup();
+        classRecorder = undefined;
+        if (chunks.length) {
+          if (savedRecording) URL.revokeObjectURL(savedRecording.url);
+          const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+          savedRecording = { module: panel.dataset.liveModule, downloaded: false,
+            url: URL.createObjectURL(new Blob(chunks, { type: mimeType.split(';')[0] })),
+            filename: `class-${new Date().toISOString().replace(/[:.]/g, '-') }.${ext}` };
+          showRecording(document.getElementById('live-classroom') || panel);
+          status.textContent = 'Recording ready. Download it before closing this page.';
+        } else status.textContent = 'No recording data was captured.';
+        updateLiveControls(panel);
+      };
+      draw();
+      recorder.start(1000);
+      classRecorder = recorder;
+      animation = setInterval(draw, 1000 / 15);
+      duration = setTimeout(() => stopClassRecording(), 60 * 60 * 1000);
+      status.textContent = 'Recording on this device. Keep this tab open until you save the file.';
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
+  }
+
+  function stopClassRecording() {
+    if (classRecorder?.state === 'recording') classRecorder.stop();
+  }
+
   async function connectClass(grant, panel) {
     const kit = await loadLiveKit();
+    if (!panel.isConnected) return;
     await liveRoom?.disconnect();
     const room = new kit.Room();
     const media = panel.querySelector('[data-live-media]');
     const status = panel.querySelector('.provider-status');
-    const leave = panel.querySelector('[data-live-leave]');
-    const attach = track => media.append(track.attach());
+    const audio = panel.querySelector('[data-live-control="audio"]');
+    const leave = panel.querySelector('[data-live-control="leave"]');
+    const host = panel.querySelector('[data-live-host]');
+    const detach = track => track.detach().forEach(element => element.remove());
+    const attach = (track, publication) => {
+      const element = track.attach();
+      element.dataset.liveSource = publication.source;
+      element.hidden = publication.isMuted;
+      media.append(element);
+    };
+    const refreshMedia = publication => {
+      publication.track?.attachedElements.forEach(element => { element.hidden = publication.isMuted; });
+      updateLiveControls(panel);
+    };
     room.on(kit.RoomEvent.TrackSubscribed, attach);
-    room.on(kit.RoomEvent.TrackUnsubscribed, track => track.detach().forEach(element => element.remove()));
+    room.on(kit.RoomEvent.TrackUnsubscribed, detach);
+    room.on(kit.RoomEvent.LocalTrackPublished, publication => {
+      if (publication.track?.kind === 'video') attach(publication.track, publication);
+      updateLiveControls(panel);
+    });
+    room.on(kit.RoomEvent.LocalTrackUnpublished, publication => {
+      if (publication.track) detach(publication.track);
+      updateLiveControls(panel);
+    });
+    room.on(kit.RoomEvent.TrackMuted, refreshMedia);
+    room.on(kit.RoomEvent.TrackUnmuted, refreshMedia);
+    room.on(kit.RoomEvent.AudioPlaybackStatusChanged, () => { audio.hidden = room.canPlaybackAudio; });
     room.on(kit.RoomEvent.Disconnected, () => {
-      if (liveRoom === room) liveRoom = undefined;
+      if (liveRoom !== room) return;
+      stopClassRecording();
+      liveRoom = livePanel = undefined;
       media.replaceChildren();
-      leave.hidden = true;
+      host.hidden = audio.hidden = leave.hidden = true;
+      panel.querySelector('[data-session]')?.removeAttribute('hidden');
       status.textContent = 'Disconnected from the live class.';
     });
     await room.connect(grant.url, grant.token);
+    if (!panel.isConnected) return room.disconnect();
     liveRoom = room;
+    livePanel = panel;
     leave.hidden = false;
-    if (grant.host) {
-      try {
-        await room.localParticipant.enableCameraAndMicrophone();
-        const video = room.localParticipant.getTrackPublication(kit.Track.Source.Camera)?.track;
-        if (video) attach(video);
-      } catch {
-        status.textContent = 'Connected, but the camera or microphone could not be started. Check browser permissions and rejoin.';
+    host.hidden = !grant.host;
+    audio.hidden = room.canPlaybackAudio;
+    panel.querySelector('[data-session]')?.setAttribute('hidden', '');
+    updateLiveControls(panel);
+    status.textContent = grant.host ? 'Connected. Turn on your microphone, camera, or screen when ready.' : 'Connected to the private live class.';
+  }
+
+  async function liveControl(button) {
+    const panel = button.closest('[data-live-module]');
+    const status = panel.querySelector('.provider-status');
+    const action = button.dataset.liveControl;
+    if (action === 'download') {
+      if (savedRecording) savedRecording.downloaded = true;
+      return;
+    }
+    button.disabled = true;
+    try {
+      if (action === 'copy') {
+        const field = panel.querySelector('[data-live-link]');
+        try {
+          await navigator.clipboard.writeText(field.value);
+          status.textContent = 'Join link copied. Share it with enrolled students.';
+        } catch {
+          field.focus();
+          field.select();
+          status.textContent = 'The link is selected. Copy it to share.';
+        }
         return;
       }
+      const room = liveRoom;
+      if (!room || panel !== livePanel) return;
+      if (action === 'leave') {
+        stopClassRecording();
+        await room.disconnect();
+      } else if (action === 'audio') {
+        await room.startAudio();
+      } else if (action === 'record') {
+        if (classRecorder) stopClassRecording();
+        else if (savedRecording && !savedRecording.downloaded)
+          throw new Error('Download the previous recording before starting another.');
+        else await startClassRecording(panel);
+      } else {
+        const participant = room.localParticipant;
+        if (action === 'mic') await participant.setMicrophoneEnabled(!participant.isMicrophoneEnabled);
+        if (action === 'camera') await participant.setCameraEnabled(!participant.isCameraEnabled);
+        if (action === 'screen') await participant.setScreenShareEnabled(!participant.isScreenShareEnabled);
+      }
+      updateLiveControls(panel);
+    } catch (error) {
+      status.textContent = error.name === 'NotAllowedError' ? 'Media access was declined or the browser blocked it.' : error.message;
+    } finally {
+      button.disabled = false;
     }
-    status.textContent = grant.host ? 'You are broadcasting to enrolled learners.' : 'Connected to the private live class.';
   }
 
   function adminAccounts(accounts) {
@@ -351,7 +571,9 @@
       return;
     }
     const moduleId = /^\/modules\/([\w-]+)$/.exec(path)?.[1];
-    if (!user) return go(moduleId ? '/login?module=' + encodeURIComponent(moduleId) : '/login', true);
+    const invite = new URLSearchParams(location.search).get('live');
+    if (!user) return go(moduleId ? '/login?module=' + encodeURIComponent(moduleId) +
+      (liveId(invite) ? '&live=' + encodeURIComponent(invite) : '') : '/login', true);
     if (!moduleId && path !== dashboard()) return go(dashboard(), true);
     if (moduleId) {
       main.innerHTML = `<div class="module-page"><a href="${dashboard()}" data-link>← Back to dashboard</a>
@@ -430,6 +652,7 @@
       capabilities = available;
       const admin = user.role === 'admin';
       const manage = user.role === 'teacher' && course.status !== 'suspended';
+      const invite = new URLSearchParams(location.search).get('live');
       const services = (manage || course.enrolled) && (capabilities.materials || capabilities.live)
         ? await api(route + '/services').catch(() => null) : null;
       if (current !== revision || request !== courseRevision || !detail.isConnected) return;
@@ -446,7 +669,8 @@
         ${manage ? `<details class="panel"><summary>Edit module details</summary>${form(`${route}/edit`, moduleFields(course), 'Save module')}</details>` : ''}
         ${admin ? form(route + (archived ? '/restore' : '/archive'), '', archived ? 'Restore module' : 'Archive module',
           archived ? '' : 'Archive this module and remove it from student access?') : ''}
-        ${outlineOnly ? form(`${route}/enroll`, '', 'Enroll in module') : ''}
+        ${outlineOnly && !invite ? form(`${route}/enroll`, '', 'Enroll in module') : ''}
+        ${moduleLive(services, route, manage && course.status !== 'draft', invite, course.enrolled)}
         <section class="module-section lecture-series" aria-labelledby="lecture-heading">
           <h2 id="lecture-heading">Lectures</h2>
           ${manage ? `<details class="panel"><summary>Add lecture</summary>${form(`${route}/lessons`,
@@ -468,18 +692,22 @@
         ${students ? `<section class="module-section"><h2>Learner progress</h2>${learnerProgress.length ? `<ul class="module-list">${learnerProgress.map(p => `<li><strong>${escape(p.name)}</strong><span>${escape(p.completed)} of ${lessons.length} lessons complete</span></li>`).join('')}</ul>` : `<p>${students.map(s => escape(s.name)).join(', ') || 'No students enrolled yet.'}</p>`}</section>` : ''}
         ${course.enrolled ? `<section class="module-tip provider-panel"><strong>Your next step</strong> ${course.progress >= 100 ? 'Review the module and check for available exams.' : 'Continue with your next unfinished lesson.'}
           ${capabilities.ai ? `<p><button type="button" data-provider-action="${route}/ai_progress">Suggest study steps</button></p><p class="provider-status" role="status"></p>` : ''}</section>` : ''}
-        ${services ? moduleLive(services, route, manage) : ''}
         ${Array.isArray(exams) ? examsView(exams, route, manage, course.enrolled) : ''}
         ${manage && history.length ? `<details class="panel module-section"><summary>Module version history</summary><ul class="module-list">${history.map(r => `<li><strong>${escape(r.snapshot.title)} · ${escape(r.snapshot.status)}</strong><span>${escape(new Date(r.recorded_at).toLocaleString())}</span>${r.snapshot.subject ? `<p>${escape(r.snapshot.subject)}</p>` : ''}${r.snapshot.description ? `<p>${escape(r.snapshot.description)}</p>` : ''}</li>`).join('')}</ul></details>` : ''}
         </article>`;
-      detail.focus();
+      const roomPanel = detail.querySelector('[data-live-module]');
+      if (roomPanel && livePanel?.dataset.liveModule === route) roomPanel.replaceWith(livePanel);
+      const classroom = detail.querySelector('[data-live-module]');
+      if (classroom) showRecording(classroom);
+      if (invite && classroom) classroom.focus();
+      else detail.focus();
     } catch (error) {
       if (current === revision && request === courseRevision) detail.textContent = error.message;
     }
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-leave]');
+    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control]');
     if (!control) return;
     if (control.hasAttribute('data-link')) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -502,16 +730,21 @@
       control.textContent = dark ? '☀' : '☾';
       control.setAttribute('aria-pressed', String(dark));
     } else if (control.hasAttribute('data-logout')) {
+      if (classRecorder || (savedRecording && !savedRecording.downloaded)) {
+        window.alert('Stop and download your class recording before signing out.');
+        return;
+      }
       try { await api('logout', {}); } catch { /* Clear the browser session even if the API is offline. */ }
       clearSession();
       go('/login', true);
-    } else if (control.hasAttribute('data-live-leave')) {
-      await liveRoom?.disconnect();
+    } else if (control.hasAttribute('data-live-control')) {
+      await liveControl(control);
     } else if (control.hasAttribute('data-provider-action')) {
       const panel = control.closest('.provider-panel') || control.form;
       const status = panel.querySelector('.provider-status');
       const action = control.dataset.providerAction;
       const body = control.dataset.asset ? { assetId: control.dataset.asset } : {};
+      if (control.dataset.session) body.sessionId = control.dataset.session;
       if (action.endsWith('/ai_feedback')) {
         body.examId = panel.elements.examId.value;
         body.studentId = panel.elements.studentId.value;
@@ -545,7 +778,10 @@
           status.textContent = result.answer;
           if (action.endsWith('/ai_feedback') && !panel.elements.feedback.value.trim()) panel.elements.feedback.value = result.answer.slice(0, 2000);
         } else {
-          if (action.endsWith('/end_live')) await liveRoom?.disconnect();
+          if (action.endsWith('/end_live')) {
+            stopClassRecording();
+            await liveRoom?.disconnect();
+          }
           await render();
         }
       } catch (error) {
@@ -596,10 +832,14 @@
       status.textContent = 'Working…';
       try {
         if (element.dataset.liveStart) {
-          await api(element.dataset.liveStart, { title: element.elements.title.value });
+          const grant = await api(element.dataset.liveStart, { title: element.elements.title.value });
+          if (!panel.isConnected) return;
           await render();
           const refreshed = document.querySelector('[data-live-media]')?.closest('.provider-panel');
-          if (refreshed) refreshed.querySelector('.provider-status').textContent = 'Room opened. Select Rejoin as host to start broadcasting.';
+          if (refreshed?.dataset.liveModule === panel.dataset.liveModule) {
+            try { await connectClass(grant, refreshed); }
+            catch { refreshed.querySelector('.provider-status').textContent = 'Class opened. Select Join as teacher to connect.'; }
+          }
         } else {
           const route = element.dataset.uploadMaterial;
           const file = element.elements.file.files[0];
@@ -672,8 +912,10 @@
       if (action === 'login') {
         ({ token, user } = result);
         sessionStorage.setItem('sls-session', token);
-        const module = new URLSearchParams(location.search).get('module');
-        go(module && /^[\w-]+$/.test(module) ? '/modules/' + module : dashboard(), true);
+        const params = new URLSearchParams(location.search);
+        const module = params.get('module');
+        const invite = params.get('live');
+        go(module && /^[\w-]+$/.test(module) ? '/modules/' + module + (liveId(invite) ? '?live=' + invite : '') : dashboard(), true);
       } else if (action === 'register') {
         element.reset();
         const password = element.elements.password;
@@ -705,7 +947,18 @@
     }
   });
 
-  window.addEventListener('popstate', render);
+  window.addEventListener('popstate', () => {
+    if (livePanel && location.pathname !== '/modules/' + livePanel.dataset.liveModule.split('/')[1]) {
+      stopClassRecording();
+      void liveRoom?.disconnect();
+    }
+    void render();
+  });
+  window.addEventListener('beforeunload', event => {
+    if (!classRecorder && (!savedRecording || savedRecording.downloaded)) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
   document.documentElement.classList.toggle('dark', localStorage.getItem('sls-theme') === 'dark');
   void (async () => {
     if (token) {

@@ -4,7 +4,8 @@ insert into auth.users(id,email,raw_user_meta_data) values
  ('bf2f73c1-441a-4df3-afc1-7037a8190012','provider-student@example.test','{"name":"Learner"}');
 update sls.profiles set pending = false where email = 'provider-teacher@example.test';
 insert into sls.courses(id,owner,title,status) values
- ('bf2f73c1-441a-4df3-afc1-7037a8190013','bf2f73c1-441a-4df3-afc1-7037a8190011','Services QA','published');
+ ('bf2f73c1-441a-4df3-afc1-7037a8190013','bf2f73c1-441a-4df3-afc1-7037a8190011','Services QA','published'),
+ ('bf2f73c1-441a-4df3-afc1-7037a8190015','bf2f73c1-441a-4df3-afc1-7037a8190011','Second module','published');
 insert into sls.lessons(id,course,title,body) values
  ('bf2f73c1-441a-4df3-afc1-7037a8190014','bf2f73c1-441a-4df3-afc1-7037a8190013','Lesson','Lesson body');
 create temporary table provider_test_ids(id uuid);
@@ -15,6 +16,7 @@ declare
   teacher text := 'bf2f73c1-441a-4df3-afc1-7037a8190011';
   student text := 'bf2f73c1-441a-4df3-afc1-7037a8190012';
   module jsonb := '{"courseId":"bf2f73c1-441a-4df3-afc1-7037a8190013"}';
+  second_module jsonb := '{"courseId":"bf2f73c1-441a-4df3-afc1-7037a8190015","title":"Second class"}';
   media jsonb;
   live jsonb;
 begin
@@ -24,6 +26,12 @@ begin
   insert into provider_test_ids values((media->>'id')::uuid);
   live := public.sls_module_services('start_live',module || '{"title":"Private class"}');
   assert public.sls_module_services('join_live',module)->>'host' = 'true';
+  assert public.sls_module_services('start_live',module || '{"title":"Private class"}')->>'id' = live->>'id';
+  begin
+    perform public.sls_module_services('start_live',second_module);
+    raise exception 'Teacher opened two live classes';
+  exception when unique_violation then null;
+  end;
   perform set_config('request.jwt.claim.sub',student,true);
   begin
     perform public.sls_module_services('join_live',module);
@@ -51,6 +59,7 @@ begin
     raise exception 'Closed room returned a grant';
   exception when sqlstate 'PT404' then null;
   end;
+  assert public.sls_module_services('start_live',second_module)->>'course' = second_module->>'courseId';
 end $$;
 reset role;
 do $$

@@ -53,6 +53,8 @@ function moduleServices({ providers, rpc, serviceRpc, confirmAsset }) {
       requireFeature('live');
       if (action === 'start_live') await invoke('start_live', { title: required(body.title, 'Class title', 160) });
       const grant = await invoke('join_live');
+      if (body.sessionId !== undefined && verifyId(body.sessionId) !== grant.session)
+        fail(404, 'This live class has ended or the invite is no longer valid.');
       if (action === 'end_live') {
         if (!grant.host) fail(403, 'Only the module owner can end this class.');
         await providers.live.close(grant.session);

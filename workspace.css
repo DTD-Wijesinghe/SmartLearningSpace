@@ -216,7 +216,11 @@ textarea { min-height: 7rem; }
 .provider-panel video { display: block; width: 100%; max-height: 35rem; border-radius: .65rem; background: #17192f; }
 .provider-panel small { display: block; color: var(--muted); }
 .provider-panel button { margin-right: .4rem; }
-.live-media { display: grid; gap: .6rem; }
+.live-media { display: grid; gap: .6rem; margin-top: .7rem; }
+.live-media video[data-live-source="screen_share"] { order: -1; }
+#live-classroom .actions { margin-top: .7rem; }
+#live-classroom input[data-live-link] { max-width: 38rem; }
+#live-classroom [data-live-host] button[aria-pressed="true"] { background: var(--soft); color: var(--accent); }
 .status, .role-pill { display: inline-block; border-radius: 2rem; padding: .2rem .55rem; background: var(--soft); color: var(--accent); font-size: .82rem; font-weight: 740; white-space: normal; }
 .status { background: #fff; color: inherit; }
 .progress-label { display: flex; justify-content: space-between; margin-top: .7rem; font-size: .85rem; }

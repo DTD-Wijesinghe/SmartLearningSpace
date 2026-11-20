@@ -31,6 +31,20 @@ test('live tokens are room-scoped and students cannot publish', async () => {
   assert.ok(claims.exp - Math.floor(Date.now() / 1000) <= 120);
 });
 
+test('an invite cannot join or end a replacement live class', async () => {
+  const oldSession = 'a1111111-1111-4111-a111-111111111112';
+  const calls = [];
+  const service = moduleServices({
+    providers: { live: { token: async grant => { calls.push('token'); return grant; },
+      close: async () => { calls.push('close'); } } },
+    serviceRpc: async () => ({ session: id, host: false }),
+  });
+  await assert.rejects(service('student', 'join_live', id, { sessionId: oldSession }), { status: 404 });
+  await assert.rejects(service('student', 'end_live', id, { sessionId: id }), { status: 403 });
+  assert.deepEqual(calls, []);
+  assert.equal((await service('student', 'join_live', id, { sessionId: id })).session, id);
+});
+
 test('material reservation and confirmation require authorization and matching object metadata', async () => {
   const recorded = [];
   let matches = false;

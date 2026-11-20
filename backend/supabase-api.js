@@ -24,6 +24,8 @@ function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
     if (response.ok) return data;
     if (response.status === 429) fail(429, 'Please wait before trying again.');
     if (response.status >= 500) fail(503, 'Supabase could not complete the request.');
+    if (data.code === '23505' && body?.action === 'start_live')
+      fail(409, 'End your live class in the other module before starting another one.');
     const status = data.code === '42501' ? 403 : Number(data.code?.match?.(/^PT(\d{3})$/)?.[1]) || response.status;
     if (path.includes('grant_type=password')) fail(status === 400 ? 401 : status, 'Invalid email or password, or email confirmation is required.');
     fail(status, path.startsWith('/rest/') ? (status === 400 ? 'Check the submitted values.' : data.message || 'Request denied.')
