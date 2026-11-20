@@ -2,7 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes, scryptSync, timingSafeEqual } = require('node:crypto');
-const { workspace, required, fail } = require('./workspace');
+const { workspace, required, fail, notify } = require('./workspace');
 
 const root = path.resolve(__dirname, '..');
 const assets = new Set(['index.html', 'app.js', 'dashboard.css', 'styles.css', 'fixes.css', 'pages.css', 'modern.css',
@@ -111,6 +111,10 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
           const role = body.teacher === true ? 'teacher' : 'student';
         const next = structuredClone(data);
         next.users.push({ email, passwordHash: hash(password), name: required(body.name, 'Name'), role, pending: role === 'teacher' });
+        if (role === 'teacher') {
+          for (const account of next.users.filter(a => a.role === 'admin' && !a.suspended && !a.pending))
+            notify(next, account.email, 'Teacher approval requested: ' + next.users.at(-1).name, '/admin/dashboard#users');
+        }
         save(next);
         data = next;
           return send(201, { pending: role === 'teacher' });

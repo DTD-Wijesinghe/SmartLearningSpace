@@ -297,6 +297,20 @@ textarea { min-height: 7rem; }
 .classroom-invite label, .classroom-start label { flex: 1 1 16rem; min-width: 0; }
 .classroom-invite input { margin: 0; }
 .classroom .provider-status:empty { display: none; }
+.notification-link { display: inline-flex; align-items: center; gap: .3rem; }
+.notification-actions { display: flex; flex-wrap: wrap; align-items: start; gap: .55rem; margin: .75rem 0; }
+.notification-actions form { margin: 0; }
+.notification-actions .primary { background: var(--surface); color: var(--ink); border-color: var(--line); box-shadow: none; }
+.notification-actions .primary:hover { background: var(--soft); transform: none; }
+.notification-actions [role="status"]:empty, [data-notification-status]:empty, .feedback-confirmation:empty { display: none; }
+.notification-list li { gap: .65rem; }
+.notification-list a, .feedback-message { overflow-wrap: anywhere; }
+.notification-list small { display: block; color: var(--muted); }
+.notification-list .role-pill { flex-shrink: 0; }
+.feedback-entry { border: 1px solid var(--line); border-radius: .7rem; padding: .7rem .85rem; margin-top: .7rem; }
+.feedback-entry summary strong { overflow-wrap: anywhere; margin-inline-end: .55rem; }
+.feedback-message { white-space: pre-wrap; }
+.feedback-confirmation { color: var(--accent); font-weight: 650; }
 .status, .role-pill { display: inline-block; border-radius: 2rem; padding: .2rem .55rem; background: var(--soft); color: var(--accent); font-size: .82rem; font-weight: 740; white-space: normal; }
 .status { background: #fff; color: inherit; }
 .progress-label { display: flex; justify-content: space-between; margin-top: .7rem; font-size: .85rem; }

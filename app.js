@@ -521,6 +521,78 @@
     </section>`;
   }
 
+  const feedbackStatuses = { new: 'New', reviewing: 'In review', resolved: 'Resolved' };
+  const feedbackTopics = { issue: 'Report an issue', suggestion: 'Suggest an improvement', general: 'General feedback' };
+
+  function feedbackPanel(items, admin) {
+    const entries = items.map(item => `<details class="feedback-entry" id="feedback-${escape(item.id)}">
+      <summary><strong>${escape(item.subject)}</strong><span class="role-pill">${escape(feedbackStatuses[item.status])}</span></summary>
+      <p class="muted">${escape(feedbackTopics[item.topic])}${admin ? ` · ${escape(item.senderName)} (${escape(item.senderRole)})` : ''}</p>
+      <p class="feedback-message">${escape(item.message)}</p>
+      ${admin ? form('communications/review',
+        `<input type="hidden" name="feedbackId" value="${escape(item.id)}">
+        <label>Status<select name="status">${Object.entries(feedbackStatuses).map(([key,label]) =>
+          `<option value="${key}"${item.status === key ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+        <label>Response to sender<textarea name="response" rows="3" maxlength="2000">${escape(item.response)}</textarea></label>`,
+        'Save review')
+        : item.response ? `<p class="feedback-message"><strong>Admin response</strong><br>${escape(item.response)}</p>` : ''}
+    </details>`).join('');
+    return `<section class="dashboard-section panel" id="feedback" tabindex="-1">
+      <h2>${admin ? 'Feedback management' : 'Feedback to system admin'}</h2>
+      <p role="status" class="feedback-confirmation" data-feedback-confirmation></p>
+      ${admin ? '' : form('communications/submit',
+        `<label>Topic<select name="topic">${Object.entries(feedbackTopics).map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label>
+        <label>Subject<input name="subject" maxlength="120" required></label>
+        <label>Message<textarea name="message" rows="4" maxlength="2000" required></textarea></label>`, 'Send feedback')}
+      ${entries || '<p class="muted">No feedback submissions yet.</p>'}
+    </section>`;
+  }
+
+  function notificationItems({ notifications, unread }) {
+    return `<div class="notification-actions"><button type="button" data-notification-refresh>Refresh</button>
+      ${unread ? form('communications/read_all', '', 'Mark all as read') : ''}</div>
+      ${notifications.length ? `<ul class="records notification-list">${notifications.map(notice =>
+        `<li><div><a data-link data-notice-id="${notice.read_at ? '' : escape(notice.id)}" href="${escape(notice.destination)}">${escape(notice.title)}</a>
+          <small>${escape(new Date(notice.created_at).toLocaleString())}</small></div>
+          ${notice.read_at ? '' : '<span class="role-pill">Unread</span>'}</li>`).join('')}</ul>`
+        : '<p class="muted">You have no notifications.</p>'}`;
+  }
+
+  function focusLinkedSection() {
+    const section = document.getElementById(location.hash.slice(1));
+    if (!section) return false;
+    if (section.tagName === 'DETAILS') {
+      section.open = true;
+      section.querySelector('summary')?.focus();
+    } else section.focus();
+    section.scrollIntoView({ block: 'start' });
+    return true;
+  }
+
+  function showUnread(count) {
+    const badge = nav.querySelector('[data-notification-count]');
+    if (!badge) return;
+    badge.textContent = count > 99 ? '99+' : count;
+    badge.hidden = !count;
+  }
+
+  async function refreshNotices(force = false) {
+    if (!user || document.hidden) return;
+    const session = token;
+    try {
+      const items = await api('communications/inbox');
+      if (session !== token) return;
+      showUnread(items.unread);
+      const inbox = document.querySelector('[data-notification-items]');
+      if (inbox && (force || !inbox.contains(document.activeElement))) inbox.innerHTML = notificationItems(items);
+    } catch (error) {
+      if (force) {
+        const status = document.querySelector('[data-notification-status]');
+        if (status) status.textContent = error.message;
+      }
+    }
+  }
+
   function moduleConversations(course, route, items) {
     const active = course.status !== 'suspended' && course.status !== 'draft';
     const admin = user.role === 'admin';
@@ -556,10 +628,13 @@
     const path = location.pathname;
     const dark = document.documentElement.classList.contains('dark');
     nav.innerHTML = `<button class="theme-toggle" data-theme aria-label="Toggle color theme" aria-pressed="${dark}" title="Toggle color theme">${dark ? '☀' : '☾'}</button>` + (user
-      ? `<a class="nav-link" href="${dashboard()}" data-link>Dashboard</a><button class="secondary sign-out" data-logout>Sign out</button>`
+      ? `<a class="nav-link" href="${dashboard()}" data-link>Dashboard</a>
+        <a class="nav-link notification-link" href="${dashboard()}#notifications" data-link>Notifications <span class="role-pill" data-notification-count hidden></span></a>
+        <button class="secondary sign-out" data-logout>Sign out</button>`
       : '<a class="nav-link" href="/login" data-link>Sign in</a><a class="primary nav-register" href="/register" data-link>Get started</a>');
     if (path === '/') {
       main.innerHTML = homepage();
+      if (user) void refreshNotices();
       return;
     }
     if (path === '/login' || path === '/register') {
@@ -593,16 +668,20 @@
     if (!moduleId && path !== dashboard()) return go(dashboard(), true);
     if (moduleId) {
       main.innerHTML = `<div class="module-page"><a href="${dashboard()}" data-link>← Back to dashboard</a>
-        <section id="course-detail" tabindex="-1" aria-label="Module details"></section></div>`;
+        <section id="course-detail" tabindex="-1" aria-label="Module details"></section>
+        <p><a href="${dashboard()}#feedback" data-link>${user.role === 'admin' ? 'Feedback management' : 'Send feedback to system admin'}</a></p></div>`;
+      void refreshNotices();
       await openCourse(moduleId);
       return;
     }
     main.innerHTML = '<p class="loading" role="status">Loading your workspace…</p>';
     try {
-      const [summary, catalog, accounts, available] = await Promise.all([api('dashboard'), api('courses'),
-        user.role === 'admin' ? api('users') : null, api('capabilities').catch(() => ({}))]);
+      const [summary, catalog, accounts, available, communications] = await Promise.all([api('dashboard'), api('courses'),
+        user.role === 'admin' ? api('users') : null, api('capabilities').catch(() => ({})),
+        api('communications').catch(error => ({ error: error.message, unread: 0, notifications: [], feedback: [] }))]);
       if (current !== revision) return;
       capabilities = available;
+      showUnread(communications.unread);
       const cards = catalog.courses.map(courseCard).join('');
       const role = user.role;
       const copy = workspaceCopy[role];
@@ -615,6 +694,7 @@
             ${accounts ? '<button type="button" data-jump="users">User management</button>' : ''}
             <button type="button" data-jump="courses">${courseHeading}</button>
             ${role === 'teacher' ? '<button type="button" data-jump="create">Create module</button>' : ''}
+            <button type="button" data-jump="feedback">${role === 'admin' ? 'Feedback management' : 'Send feedback'}</button>
           </nav>
         </aside>
         <div class="workspace-main">
@@ -625,6 +705,10 @@
           </header>
           <div class="stat-grid">${Object.entries(summary.stats).map(([key, value]) =>
             `<article><span>${escape(key)}</span><strong>${escape(value)}</strong></article>`).join('')}</div>
+          <section id="notifications" class="dashboard-section panel" tabindex="-1">
+            <h2>Notifications</h2><p role="status" data-notification-status></p>
+            <div data-notification-items>${communications.error ? `<p class="error">${escape(communications.error)}</p>` : ''}${notificationItems(communications)}</div>
+          </section>
           ${accounts ? adminAccounts(accounts) : ''}
           <section id="courses" class="dashboard-section" tabindex="-1">
             <header class="section-head"><h2>${courseHeading}</h2></header>
@@ -637,8 +721,10 @@
               : `<div class="empty"><span class="empty-icon" aria-hidden="true">✦</span><strong>No courses yet</strong><p>${empty}</p></div>`}
           </section>
           ${role === 'student' ? helpDesk() : ''}
+          ${feedbackPanel(communications.feedback, role === 'admin')}
         </div>
       </section>`;
+      focusLinkedSection();
     } catch (error) {
       if (current === revision) showError(error);
     }
@@ -716,19 +802,24 @@
       const classroom = detail.querySelector('[data-live-module]');
       if (classroom) showRecording(classroom);
       if (invite && classroom) classroom.focus();
-      else detail.focus();
+      else if (!focusLinkedSection()) detail.focus();
     } catch (error) {
       if (current === revision && request === courseRevision) detail.textContent = error.message;
     }
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control]');
+    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control],[data-notification-refresh]');
     if (!control) return;
     if (control.hasAttribute('data-link')) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
+      if (control.dataset.noticeId && !classRecorder)
+        await api('communications/read', { notificationId: control.dataset.noticeId }).catch(() => {});
       go(control.getAttribute('href'));
+    } else if (control.hasAttribute('data-notification-refresh')) {
+      await refreshNotices(true);
+      document.querySelector('[data-notification-refresh]')?.focus();
     } else if (control.hasAttribute('data-password-toggle')) {
       const password = control.form.elements.password;
       const visible = password.type === 'password';
@@ -940,6 +1031,18 @@
         status.textContent = result.checkEmail
           ? 'Check your email to confirm your account. Teacher accounts also require administrator approval.'
           : result.pending ? 'Your application is awaiting administrator approval.' : 'Account created. You can sign in.';
+      } else if (action === 'communications/read_all') {
+        await refreshNotices(true);
+        document.getElementById('notifications')?.focus();
+      } else if (action === 'communications/submit' || action === 'communications/review') {
+        await render();
+        const confirmation = document.querySelector('[data-feedback-confirmation]');
+        if (confirmation) confirmation.textContent = action.endsWith('/submit') ? 'Feedback sent to the system admin.' : 'Feedback review saved.';
+        const entry = document.getElementById('feedback-' + result.id);
+        if (entry) {
+          entry.open = true;
+          entry.querySelector('summary')?.focus();
+        }
       } else {
         if (action === 'courses' && result.course?.id) go('/modules/' + encodeURIComponent(result.course.id));
         else {
@@ -975,6 +1078,7 @@
     event.preventDefault();
     event.returnValue = '';
   });
+  window.setInterval(refreshNotices, 60000);
   document.documentElement.classList.toggle('dark', localStorage.getItem('sls-theme') === 'dark');
   void (async () => {
     if (token) {

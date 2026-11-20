@@ -60,6 +60,13 @@ function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
       return { status: 200, value: { user, token: auth.access_token } };
     }
     if (!token) fail(401, 'Sign in to continue.');
+    const communication = /^\/api\/communications(?:\/(inbox|submit|review|read|read_all))?$/.exec(route);
+    if (communication && (!communication[1] || communication[1] === 'inbox' ? req.method === 'GET' : post)) {
+      const value = await call('/rest/v1/rpc/sls_communications', {
+        token, body: { action: communication[1] || 'list', payload: body },
+      });
+      return { status: 200, value };
+    }
     if (req.method === 'GET' && route === '/api/capabilities')
       return { status: 200, value: await moduleService(token, 'capabilities') };
     if (post && route === '/api/help/ai')

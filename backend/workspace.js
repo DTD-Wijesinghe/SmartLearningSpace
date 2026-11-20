@@ -17,6 +17,57 @@ function optional(value, label, max, fallback = '') {
   return value.trim();
 }
 
+function notify(data, email, title, destination) {
+  (data.notifications ||= []).unshift({ id: randomUUID(), email, title, destination,
+    created_at: new Date().toISOString(), read_at: null });
+}
+
+function communications(data, user, action, body) {
+  const admin = user.role === 'admin';
+  const items = data.platformFeedback || [];
+  if (action === 'list' || action === 'inbox') {
+    const notices = (data.notifications || []).filter(n => n.email === user.email);
+    return {
+      unread: notices.filter(n => !n.read_at).length,
+      notifications: notices.sort((a, b) => Boolean(a.read_at) - Boolean(b.read_at)).slice(0, 50)
+        .map(({ email, ...notice }) => notice),
+      feedback: action === 'inbox' ? [] : items.filter(item => admin || item.sender === user.email)
+        .sort((a, b) => Number(a.status === 'resolved') - Number(b.status === 'resolved') || b.updated_at.localeCompare(a.updated_at))
+        .map(({ sender, ...item }) => item),
+    };
+  }
+  const now = new Date().toISOString();
+  if (action === 'read' || action === 'read_all') {
+    const onlyOne = action === 'read';
+    const notices = (data.notifications || []).filter(n => n.email === user.email && (!onlyOne || n.id === body.notificationId));
+    if (onlyOne && !notices.length) fail(404, 'Notification not found.');
+    for (const notice of notices) notice.read_at ||= now;
+    return { ok: true };
+  }
+  if (action === 'submit') {
+    if (admin) fail(403, 'Teacher or student access required.');
+    if (!['issue', 'suggestion', 'general'].includes(body.topic)) fail(400, 'Choose a feedback topic.');
+    const item = { id: randomUUID(), sender: user.email, senderName: user.name, senderRole: user.role,
+      topic: body.topic, subject: required(body.subject, 'Subject', 120), message: required(body.message, 'Message', 2000),
+      status: 'new', response: '', created_at: now, updated_at: now };
+    (data.platformFeedback ||= []).unshift(item);
+    for (const account of data.users.filter(a => a.role === 'admin' && !a.suspended && !a.pending))
+      notify(data, account.email, 'New platform feedback: ' + item.subject, '/admin/dashboard#feedback-' + item.id);
+    return { id: item.id };
+  }
+  if (!admin) fail(403, 'Administrator access required.');
+  if (!['new', 'reviewing', 'resolved'].includes(body.status)) fail(400, 'Choose a feedback status.');
+  const response = optional(body.response, 'Response', 2000);
+  const item = items.find(entry => entry.id === body.feedbackId);
+  if (!item) fail(404, 'Feedback not found.');
+  if (item.status !== body.status || item.response !== response) {
+    Object.assign(item, { status: body.status, response, updated_at: now });
+    (data.audit ||= []).push({ action: 'feedback.reviewed', actor: user.email, target: item.id, at: now });
+    notify(data, item.sender, 'Feedback updated: ' + item.subject, '/' + item.senderRole + '/dashboard#feedback-' + item.id);
+  }
+  return { id: item.id };
+}
+
 function modulePage(data, course, user, action, body, { admin, owner, learner, active }) {
   const threads = course.conversations || [];
   const visible = thread => admin || owner || (learner && thread.student === user.email);
@@ -37,6 +88,7 @@ function modulePage(data, course, user, action, body, { admin, owner, learner, a
     const id = randomUUID();
     (course.conversations ||= []).unshift({ id, kind: body.kind, subject, student: user.email,
       studentName: user.name, closed: false, messages: [message] });
+    notify(data, course.owner, 'Student message: ' + subject, '/modules/' + course.id + '#thread-' + id);
     return { id };
   }
   const thread = threads.find(item => item.id === body.threadId && visible(item));
@@ -53,6 +105,9 @@ function modulePage(data, course, user, action, body, { admin, owner, learner, a
   }
   if (thread.closed) fail(409, 'This conversation is closed.');
   thread.messages.push({ author: user.name, role: user.role, text: required(body.text, 'Reply', 2000) });
+  const fromStudent = user.email === thread.student;
+  notify(data, fromStudent ? course.owner : thread.student,
+    (fromStudent ? 'Student message: ' : 'Reply in your module: ') + thread.subject, '/modules/' + course.id + '#thread-' + thread.id);
   return { id: thread.id };
 }
 
@@ -77,6 +132,9 @@ function workspace(data, user, method, route, body) {
     const { title, subject, description, status } = course;
     (course.history ||= []).unshift({ snapshot: { title, subject, description, status }, recorded_at: new Date().toISOString() });
   };
+  const communication = /^\/api\/communications(?:\/(inbox|submit|review|read|read_all))?$/.exec(route);
+  if (communication && (!communication[1] || communication[1] === 'inbox' ? method === 'GET' : method === 'POST'))
+    return result(communications(data, user, communication[1] || 'list', body));
   if (method === 'GET' && route === '/api/me') return result({ user });
   if (method === 'GET' && route === '/api/dashboard') {
     const courses = data.courses.filter(visible);
@@ -111,6 +169,7 @@ function workspace(data, user, method, route, body) {
     const account = data.users.find(item => item.email === body.email && item.role === 'teacher' && item.pending);
     if (!account) fail(404, 'Pending teacher application not found.');
     account.pending = false;
+    notify(data, account.email, 'Your teacher account was approved.', '/teacher/dashboard');
     (data.audit ||= []).push({ action: 'teacher.approved', actor: user.email, target: account.email, at: new Date().toISOString() });
     return result({ approved: true });
   }
@@ -189,4 +248,4 @@ function workspace(data, user, method, route, body) {
   return result({ course: summarize(course) });
 }
 
-module.exports = { workspace, required, fail };
+module.exports = { workspace, required, fail, notify };
