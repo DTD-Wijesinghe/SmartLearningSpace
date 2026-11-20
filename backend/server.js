@@ -6,8 +6,8 @@ const { workspace, required, fail } = require('./workspace');
 
 const root = path.resolve(__dirname, '..');
 const assets = new Set(['index.html', 'app.js', 'dashboard.css', 'styles.css', 'fixes.css', 'pages.css', 'modern.css',
-  'responsive-fixes.css', 'workspace.css', 'assets/smartlearning-logo.png']);
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png' };
+  'responsive-fixes.css', 'workspace.css', 'assets/smartlearning-logo.png', 'assets/learning-studio.webp', 'assets/teaching-studio.webp']);
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp' };
 const roles = new Set(['admin', 'teacher', 'student']);
 
 function hash(password) {

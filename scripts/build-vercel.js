@@ -10,7 +10,7 @@ if (backend.protocol !== 'https:' || backend.username || backend.password ||
 const output = join(root, '.vercel', 'output');
 const staticRoot = join(output, 'static');
 mkdirSync(join(staticRoot, 'assets'), { recursive: true });
-for (const asset of ['index.html', 'app.js', 'workspace.css', 'assets/smartlearning-logo.png']) {
+for (const asset of ['index.html', 'app.js', 'workspace.css', 'assets/smartlearning-logo.png', 'assets/learning-studio.webp', 'assets/teaching-studio.webp']) {
   copyFileSync(join(root, asset), join(staticRoot, asset));
 }
 writeFileSync(join(output, 'config.json'), JSON.stringify({
