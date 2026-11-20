@@ -78,11 +78,11 @@ footer { border-top: 1px solid var(--line); color: var(--muted); background: var
 .footer-links { gap: .85rem 1.3rem; }
 .footer-credit { display: inline-flex; align-items: center; gap: .65rem; }
 .footer-logo {
-  flex: 0 0 2.5rem;
+  flex: 0 0 2.125rem;
   height: 2.5rem;
   border-radius: .65rem;
-  /* Frame the company symbol in the upper-left corner of the supplied artwork. */
-  background: #05122e url("/assets/futora-labs.webp") 5.2% 4.3% / 859% no-repeat;
+  /* Crop the upper-left symbol before the adjacent wordmark starts. */
+  background: #05122e url("/assets/futora-labs.webp") 5.75% 4.3% / auto 859% no-repeat;
 }
 .footer-credit-text { display: grid; font-size: .82rem; line-height: 1.2; }
 .footer-credit-text strong { margin-top: .15rem; font-size: .96rem; }
