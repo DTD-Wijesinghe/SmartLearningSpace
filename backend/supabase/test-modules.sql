@@ -18,10 +18,12 @@ begin
   course_ref := jsonb_build_object('courseId',public.sls_workspace('create','{"title":"QA Module","subject":"Biology","description":"Module overview"}')->'course'->>'id');
   perform public.sls_workspace('edit',course_ref || '{"title":"Updated QA Module","subject":"Biology"}');
   perform public.sls_workspace('lessons',course_ref || '{"title":"Introduction","description":"Overview","text":"Lesson content"}');
-  perform public.sls_workspace('publish',course_ref);
+  if public.sls_workspace('course',course_ref)->'course'->>'status' = 'draft' then
+    perform public.sls_workspace('publish',course_ref);
+  end if;
   perform public.sls_workspace('exam_create',course_ref || '{"title":"Check-in","questions":[{"prompt":"Pick A","options":["A","B"],"correct":0}]}');
   module := public.sls_workspace('course',course_ref);
-  assert jsonb_array_length(module->'history') = 3;
+  assert module->'history' @> '[{"snapshot":{"title":"QA Module"}},{"snapshot":{"title":"Updated QA Module"}}]'::jsonb;
   assert module->'course'->>'description' = 'Module overview';
   assert module->'lessons'->0->>'description' = 'Overview';
   exam_ref := course_ref || jsonb_build_object('examId',module->'exams'->0->>'id');

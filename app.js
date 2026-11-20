@@ -149,21 +149,36 @@
       <form data-help-form><label>Your question<input name="question" maxlength="300" required></label><button type="submit">Ask</button><p role="status"></p></form></details>`;
   }
 
-  function moduleMaterials(services, route, manage, lessons) {
-    if (!services.enabled.materials) return '';
-    const list = services.assets.map(asset => `<li><div><strong>${escape(asset.name)}</strong>
-      <small>${escape(lessons.find(lesson => lesson.id === asset.lesson)?.title || 'Module material')}</small></div>
-      ${asset.ready_at ? `<button type="button" data-provider-action="${route}/open_asset" data-asset="${escape(asset.id)}">${asset.mime.startsWith('video/') ? 'Watch video' : 'Open file'}</button>`
-        : manage ? `<button type="button" data-provider-action="${route}/confirm_asset" data-asset="${escape(asset.id)}">Verify upload</button>` : ''}</li>`).join('');
-    return `<section class="module-section provider-panel"><h2>Lesson materials</h2>
-      <ul class="module-list">${list || '<li>No materials available yet.</li>'}</ul>
-      ${manage && lessons.length ? `<details class="panel"><summary>Upload a file</summary>
-        <form data-upload-material="${route}"><label>Lesson<select name="lessonId">${lessons.map(lesson =>
-          `<option value="${escape(lesson.id)}">${escape(lesson.title)}</option>`).join('')}</select></label>
-          <label>File<input name="file" type="file" accept=".pdf,.txt,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.mp4,.webm" required></label>
-          <p class="muted">PDF, notes, Office files and images up to 20 MB. MP4 or WebM up to 2 GiB and four hours.</p>
-          <button class="primary" type="submit">Upload material</button><progress max="100" value="0" aria-label="Upload progress" hidden></progress></form></details>` : ''}
-      <p class="provider-status" role="status"></p><div data-material-view></div></section>`;
+  function lessonMaterials(assets, route, lesson, manage, admin, storageEnabled) {
+    const kinds = [
+      { video: true, title: 'Videos', accept: '.mp4,.webm', hint: 'MP4 or WebM, up to 2 GiB and four hours.' },
+      { video: false, title: 'Documents and notes', accept: '.pdf,.txt,.docx,.pptx,.xlsx,.png,.jpg,.jpeg', hint: 'PDF, notes, Office files, and images up to 20 MB.' },
+    ];
+    return `<div class="lesson-materials provider-panel">
+      ${kinds.map(({ video, title, accept, hint }) => {
+        const items = assets.filter(asset => asset.mime.startsWith('video/') === video).map(asset => {
+          const status = asset.archived_at ? 'Removed' : asset.ready_at ? '' : 'Pending upload';
+          const preview = asset.ready_at && !asset.archived_at
+            ? `<button type="button" data-provider-action="${route}/${admin ? 'review_asset' : 'open_asset'}" data-asset="${escape(asset.id)}">${video ? 'Watch video' : 'Open file'}</button>`
+            : manage ? `<button type="button" data-provider-action="${route}/confirm_asset" data-asset="${escape(asset.id)}">Verify upload</button>` : '';
+          const moderation = admin ? form(route + '/material_moderation',
+            `<input type="hidden" name="assetId" value="${escape(asset.id)}"><input type="hidden" name="archived" value="${!asset.archived_at}">`,
+            asset.archived_at ? 'Restore file' : 'Remove file', asset.archived_at ? '' : 'Remove this file from the lecture?') : '';
+          return `<li><div><strong>${escape(asset.name)}</strong>${status ? `<small>${status}</small>` : ''}</div>
+            <div class="record-right">${preview}${moderation}</div></li>`;
+        }).join('');
+        const label = video ? 'Add video' : 'Add document';
+        return `<section class="lesson-material-group"><h4>${title}</h4>
+          ${items ? `<ul class="module-list">${items}</ul>` : '<p class="muted">None added yet.</p>'}
+          ${manage && storageEnabled ? `<details><summary>${label}</summary>
+            <form data-upload-material="${route}" data-video="${video}"><input type="hidden" name="lessonId" value="${escape(lesson.id)}">
+              <label>${video ? 'Video file' : 'Document file'}<input name="file" type="file" accept="${accept}" required></label>
+              <p class="muted">${hint}</p><button class="primary" type="submit">Upload ${video ? 'video' : 'document'}</button>
+              <progress max="100" value="0" aria-label="Upload progress" hidden></progress>
+            </form></details>` : ''}</section>`;
+      }).join('')}
+      ${manage && !storageEnabled ? '<p class="muted">File storage is currently unavailable.</p>' : ''}
+      <p class="provider-status" role="status"></p><div data-material-view></div></div>`;
   }
 
   function moduleLive(services, route, manage) {
@@ -270,24 +285,33 @@
     </section>`;
   }
 
-  function adminModeration(course, route, moderation) {
-    const archived = course.status === 'suspended';
-    const files = moderation.assets?.map(asset => {
-      const kind = asset.mime.startsWith('video/') ? 'Video' : 'File';
-      const state = asset.archived ? 'Removed' : asset.ready ? 'Available' : 'Pending upload';
-      return `<li><div class="record-person"><div><strong>${escape(asset.name)}</strong>
-        <small>${escape(asset.lesson)} · ${kind} · ${state}</small></div></div>
-        <div class="record-right">${form(route + '/material_moderation',
-          `<input type="hidden" name="assetId" value="${escape(asset.id)}"><input type="hidden" name="archived" value="${!asset.archived}">`,
-          asset.archived ? 'Restore file' : 'Remove file', asset.archived ? '' : 'Remove this file from the module?')}</div></li>`;
+  function moduleConversations(course, route, items) {
+    const active = course.status !== 'suspended' && course.status !== 'draft';
+    const admin = user.role === 'admin';
+    const canStart = user.role === 'student' && course.enrolled;
+    const threads = items.map(thread => {
+      const threadId = `<input type="hidden" name="threadId" value="${escape(thread.id)}">`;
+      return `<details class="module-thread" id="thread-${escape(thread.id)}">
+        <summary><strong>${escape(thread.subject)}</strong>
+          <span>${thread.kind === 'question' ? 'Question' : 'Feedback'} · ${escape(thread.student)} · ${thread.closed ? 'Closed' : 'Open'}</span></summary>
+        <ol class="thread-messages">${thread.messages.map(message => `<li><strong>${escape(message.author)}</strong>
+          <small>${message.role === 'admin' ? ' · System admin' : message.role === 'teacher' ? ' · Teacher' : ' · Student'}</small>
+          <p>${escape(message.text)}</p></li>`).join('')}</ol>
+        ${active && !thread.closed ? form(route + '/message_reply', threadId +
+          '<label>Reply<textarea name="text" rows="3" maxlength="2000" required></textarea></label>', 'Send reply') : ''}
+        ${admin ? form(route + '/message_status', threadId +
+          `<input type="hidden" name="closed" value="${!thread.closed}">`, thread.closed ? 'Reopen conversation' : 'Close conversation') : ''}
+      </details>`;
     }).join('');
-    return `<section class="module-section panel">
-      <h2>Module management</h2>
-      ${form(route + (archived ? '/restore' : '/archive'), '', archived ? 'Restore module' : 'Archive module',
-        archived ? '' : 'Archive this module and remove it from student access?')}
-      <h3>Videos and documents</h3>
-      ${moderation.error ? `<p class="error" role="status">${escape(moderation.error)}</p>`
-        : files ? `<ul class="records">${files}</ul>` : '<p class="muted">No uploaded materials in this module.</p>'}
+    return `<section class="module-section panel" id="module-messages">
+      <h2>Questions and feedback</h2>
+      ${canStart && active ? `<details><summary>Contact your teacher</summary>
+        <p class="muted">Your conversation is visible to you, your module teacher, and system admins.</p>
+        ${form(route + '/message_create',
+          '<label>Type<select name="kind"><option value="question">Question</option><option value="feedback">Feedback</option></select></label>' +
+          '<label>Subject<input name="subject" maxlength="160" required></label>' +
+          '<label>Message<textarea name="text" rows="4" maxlength="2000" required></textarea></label>', 'Send message')}</details>` : ''}
+      ${threads || '<p class="muted">No conversations yet.</p>'}
     </section>`;
   }
 
@@ -329,6 +353,12 @@
     const moduleId = /^\/modules\/([\w-]+)$/.exec(path)?.[1];
     if (!user) return go(moduleId ? '/login?module=' + encodeURIComponent(moduleId) : '/login', true);
     if (!moduleId && path !== dashboard()) return go(dashboard(), true);
+    if (moduleId) {
+      main.innerHTML = `<div class="module-page"><a href="${dashboard()}" data-link>← Back to dashboard</a>
+        <section id="course-detail" tabindex="-1" aria-label="Module details"></section></div>`;
+      await openCourse(moduleId);
+      return;
+    }
     main.innerHTML = '<p class="loading" role="status">Loading your workspace…</p>';
     try {
       const [summary, catalog, accounts, available] = await Promise.all([api('dashboard'), api('courses'),
@@ -346,7 +376,7 @@
           <nav aria-label="Workspace sections"><button type="button" data-jump="overview">Overview</button>
             ${accounts ? '<button type="button" data-jump="users">User management</button>' : ''}
             <button type="button" data-jump="courses">${courseHeading}</button>
-            ${role === 'teacher' ? '<button type="button" data-jump="create">Create course</button>' : ''}
+            ${role === 'teacher' ? '<button type="button" data-jump="create">Create module</button>' : ''}
           </nav>
         </aside>
         <div class="workspace-main">
@@ -360,18 +390,17 @@
           ${accounts ? adminAccounts(accounts) : ''}
           <section id="courses" class="dashboard-section" tabindex="-1">
             <header class="section-head"><h2>${courseHeading}</h2></header>
-            ${role === 'teacher' ? `<details id="create" class="panel course-create" tabindex="-1"><summary>Create course</summary>${form('courses',
-              moduleFields(), 'Save draft')}</details>` : ''}
+            ${role === 'teacher' ? `<details id="create" class="panel course-create" tabindex="-1"><summary>Create module</summary>
+              <p class="muted">Students can discover the module as soon as you create it. Then add lectures from its module page.</p>
+              ${form('courses', moduleFields(), 'Create module')}</details>` : ''}
             ${cards ? `<div class="course-toolbar"><label>Search courses<input type="search" data-course-search placeholder="Search by course or teacher"></label>
               ${role === 'student' ? '<label>Show<select data-course-filter><option value="all">All courses</option><option value="yes">My enrollments</option><option value="no">Available to join</option></select></label>' : ''}</div>
               <div class="course-grid">${cards}</div><p class="empty muted" data-no-matches hidden>No courses match your search.</p>`
               : `<div class="empty"><span class="empty-icon" aria-hidden="true">✦</span><strong>No courses yet</strong><p>${empty}</p></div>`}
           </section>
-          <section id="course-detail" tabindex="-1" aria-label="Course details"></section>
           ${role === 'student' ? helpDesk() : ''}
         </div>
       </section>`;
-      if (moduleId) await openCourse(moduleId);
     } catch (error) {
       if (current === revision) showError(error);
     }
@@ -392,31 +421,54 @@
     if (!detail) return;
     detail.innerHTML = '<p class="loading" role="status">Loading course…</p>';
     try {
-      const { course, lessons, students, completed, exams, history = [], learnerProgress = [] } = await api(`courses/${id}`);
-      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
       const route = `courses/${id}`;
+      const [{ course, lessons, students, completed, exams, history = [], learnerProgress = [] }, page, available] = await Promise.all([
+        api(route), api(route + '/module_page').catch(error => ({ error: error.message })),
+        api('capabilities').catch(() => ({})),
+      ]);
+      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
+      capabilities = available;
+      const admin = user.role === 'admin';
       const manage = user.role === 'teacher' && course.status !== 'suspended';
-      const moderation = user.role === 'admin'
-        ? await api(route + '/moderation').catch(error => ({ error: error.message })) : null;
       const services = (manage || course.enrolled) && (capabilities.materials || capabilities.live)
         ? await api(route + '/services').catch(() => null) : null;
       if (current !== revision || request !== courseRevision || !detail.isConnected) return;
+      const outlineOnly = user.role === 'student' && !course.enrolled;
+      const outline = page.outline || [];
+      const order = new Map(outline.map((lecture, i) => [lecture.id, i]));
+      const lectures = outlineOnly ? outline : [...lessons].sort((a, b) =>
+        (order.get(a.id) ?? outline.length) - (order.get(b.id) ?? outline.length));
+      const assets = admin ? page.assets || [] : services?.assets || [];
+      const archived = course.status === 'suspended';
       detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading"><p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2><p>${escape(course.teacher)} · ${escape(course.lessonCount)} lessons</p>
         ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</header>
         ${manage && course.status === 'draft' ? form(`${route}/publish`, '', 'Publish course') : ''}
         ${manage ? `<details class="panel"><summary>Edit module details</summary>${form(`${route}/edit`, moduleFields(course), 'Save module')}</details>` : ''}
-        ${moderation ? adminModeration(course, route, moderation) : ''}
-        ${manage ? `<details class="panel"><summary>Add lesson</summary>${form(`${route}/lessons`, '<label>Lesson title<input name="title" maxlength="160" required></label><label>Lesson description<input name="description" maxlength="1000"></label><label>Lesson text<textarea name="text" maxlength="12000" required></textarea></label>', 'Save lesson')}</details>` : ''}
-        ${user.role === 'student' && !course.enrolled ? form(`${route}/enroll`, '', 'Enroll') : ''}
+        ${admin ? form(route + (archived ? '/restore' : '/archive'), '', archived ? 'Restore module' : 'Archive module',
+          archived ? '' : 'Archive this module and remove it from student access?') : ''}
+        ${outlineOnly ? form(`${route}/enroll`, '', 'Enroll in module') : ''}
+        <section class="module-section lecture-series" aria-labelledby="lecture-heading">
+          <h2 id="lecture-heading">Lectures</h2>
+          ${manage ? `<details class="panel"><summary>Add lecture</summary>${form(`${route}/lessons`,
+            '<label>Lecture title<input name="title" maxlength="160" required></label><label>Description<input name="description" maxlength="1000"></label><label>Lecture notes<textarea name="text" maxlength="12000"></textarea></label>',
+            'Save lecture')}</details>` : ''}
+          ${outlineOnly ? '<p class="muted">Enroll to access the lecture notes, videos, and documents.</p>' : ''}
+          ${lectures.length ? `<ol class="lecture-list">${lectures.map((lesson, index) => `<li class="lecture-card" id="lecture-${escape(lesson.id)}" tabindex="-1">
+            <p class="eyebrow">Lecture ${index + 1}</p><h3>${escape(lesson.title)}</h3>
+            ${lesson.description ? `<p class="muted">${escape(lesson.description)}</p>` : ''}
+            ${lesson.text ? `<p class="lecture-notes">${escape(lesson.text)}</p>` : ''}
+            ${!outlineOnly && (admin || manage || course.enrolled) ? lessonMaterials(assets.filter(asset => asset.lesson === lesson.id),
+              route, lesson, manage, admin, services?.enabled.materials) : ''}
+            ${course.enrolled ? completed.includes(lesson.id) ? '<p class="completed">✓ Completed</p>' :
+              form(`${route}/progress`, `<input type="hidden" name="lessonId" value="${escape(lesson.id)}">`, 'Mark complete') : ''}
+          </li>`).join('')}</ol>` : '<p class="muted">No lectures have been added yet.</p>'}
+        </section>
+        ${page.error ? `<p class="error" role="status">${escape(page.error)}</p>`
+          : !outlineOnly ? moduleConversations(course, route, page.conversations) : ''}
         ${students ? `<section class="module-section"><h2>Learner progress</h2>${learnerProgress.length ? `<ul class="module-list">${learnerProgress.map(p => `<li><strong>${escape(p.name)}</strong><span>${escape(p.completed)} of ${lessons.length} lessons complete</span></li>`).join('')}</ul>` : `<p>${students.map(s => escape(s.name)).join(', ') || 'No students enrolled yet.'}</p>`}</section>` : ''}
         ${course.enrolled ? `<section class="module-tip provider-panel"><strong>Your next step</strong> ${course.progress >= 100 ? 'Review the module and check for available exams.' : 'Continue with your next unfinished lesson.'}
           ${capabilities.ai ? `<p><button type="button" data-provider-action="${route}/ai_progress">Suggest study steps</button></p><p class="provider-status" role="status"></p>` : ''}</section>` : ''}
-        ${lessons.length ? '<h2 class="module-section">Lessons</h2>' : ''}
-        ${lessons.map((lesson, index) => `<section class="lesson"><p class="eyebrow">Lesson ${index + 1}</p><h3>${escape(lesson.title)}</h3>${lesson.description ? `<p class="muted">${escape(lesson.description)}</p>` : ''}<p>${escape(lesson.text)}</p>
-          ${course.enrolled ? completed.includes(lesson.id) ? '<p class="completed">✓ Completed</p>' :
-            form(`${route}/progress`, `<input type="hidden" name="lessonId" value="${escape(lesson.id)}">`, 'Mark complete') : ''}</section>`).join('')}
-        ${user.role === 'student' && !course.enrolled ? '<p class="muted">Enroll to open the course lessons and track your progress.</p>' : ''}
-        ${services ? moduleMaterials(services, route, manage, lessons) + moduleLive(services, route, manage) : ''}
+        ${services ? moduleLive(services, route, manage) : ''}
         ${Array.isArray(exams) ? examsView(exams, route, manage, course.enrolled) : ''}
         ${manage && history.length ? `<details class="panel module-section"><summary>Module version history</summary><ul class="module-list">${history.map(r => `<li><strong>${escape(r.snapshot.title)} · ${escape(r.snapshot.status)}</strong><span>${escape(new Date(r.recorded_at).toLocaleString())}</span>${r.snapshot.subject ? `<p>${escape(r.snapshot.subject)}</p>` : ''}${r.snapshot.description ? `<p>${escape(r.snapshot.description)}</p>` : ''}</li>`).join('')}</ul></details>` : ''}
         </article>`;
@@ -468,7 +520,7 @@
       status.textContent = 'Working…';
       try {
         const result = await api(action, body);
-        if (action.endsWith('/open_asset')) {
+        if (action.endsWith('/open_asset') || action.endsWith('/review_asset')) {
           const area = panel.querySelector('[data-material-view]');
           let player;
           if (result.mime.startsWith('video/')) {
@@ -552,6 +604,9 @@
           const route = element.dataset.uploadMaterial;
           const file = element.elements.file.files[0];
           if (!file) throw new Error('Choose a file first.');
+          const lectureId = 'lecture-' + element.elements.lessonId.value;
+          if (file.type.startsWith('video/') !== (element.dataset.video === 'true'))
+            throw new Error(element.dataset.video === 'true' ? 'Choose a supported video.' : 'Use Add video to upload a video.');
           const maximum = file.type.startsWith('video/') ? 2147483648 : 20971520;
           if (file.size > maximum) throw new Error('The selected file exceeds the allowed size.');
           await checkVideo(file);
@@ -564,6 +619,7 @@
           await uploadFile(uploadUrl, file, asset.mime, progress);
           await api(route + '/confirm_asset', { assetId: asset.id });
           await render();
+          document.getElementById(lectureId)?.focus();
         }
       } catch (error) {
         status.textContent = error.message;
@@ -610,6 +666,7 @@
     if (values.teacher) values.teacher = true;
     if ('suspended' in values) values.suspended = values.suspended === 'true';
     if ('archived' in values) values.archived = values.archived === 'true';
+    if ('closed' in values) values.closed = values.closed === 'true';
     try {
       const result = await api(action, values);
       if (action === 'login') {
@@ -627,7 +684,19 @@
           : result.pending ? 'Your application is awaiting administrator approval.' : 'Account created. You can sign in.';
       } else {
         if (action === 'courses' && result.course?.id) go('/modules/' + encodeURIComponent(result.course.id));
-        else await render();
+        else {
+          const lectureId = element.closest('.lecture-card')?.id;
+          await render();
+          if (action.includes('/message_')) {
+            const thread = document.getElementById('thread-' + (result.id || values.threadId));
+            if (thread) {
+              thread.open = true;
+              thread.querySelector('summary')?.focus();
+            }
+          } else if (action.endsWith('/lessons')) {
+            document.querySelector('.lecture-card:last-child')?.focus();
+          } else if (lectureId) document.getElementById(lectureId)?.focus();
+        }
       }
     } catch (error) {
       status.textContent = error.message;

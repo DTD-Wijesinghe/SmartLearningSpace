@@ -6,7 +6,7 @@
   const path = require('node:path');
   const { createServer } = require('./server');
 
-  test('approved teacher publishes a lesson and a student enrolls and completes it', async t => {
+  test('approved teacher creates a visible module with lectures, progress, and private conversations', async t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sls-test-'));
     const file = path.join(dir, 'data.json');
     const password = 'local-test-password-201';
@@ -52,17 +52,21 @@
     await request('courses', 403, { title: 'Restricted' }, studentToken);
     const { course } = await request('courses', 201, { title: 'Test Course' }, teacherToken);
     const route = 'courses/' + course.id;
-    await request(route, 404, undefined, studentToken);
+    assert.equal((await request(route, 200, undefined, studentToken)).course.status, 'published');
     await request(route, 404, undefined, otherToken);
-    await request(route + '/publish', 409, {}, teacherToken);
     await request(route + '/lessons', 200, { title: 'Welcome', text: 'Course material' }, teacherToken);
-    await request(route + '/publish', 200, {}, teacherToken);
+    await request(route + '/lessons', 200, { title: 'Practice' }, teacherToken);
     assert.deepEqual((await request(route, 200, undefined, studentToken)).lessons, []);
+    const { outline } = await request(route + '/module_page', 200, undefined, studentToken);
+    assert.deepEqual(outline.map(lecture => lecture.title), ['Welcome', 'Practice']);
+    assert.ok(outline.every(lecture => !Object.hasOwn(lecture, 'text')));
+    await request(route + '/message_create', 403, { kind: 'question', subject: 'Private', text: 'Can you help?' }, studentToken);
     await request(route + '/enroll', 200, {}, studentToken);
     await request(route + '/enroll', 200, {}, studentToken);
     const { lessons } = await request(route, 200, undefined, studentToken);
     assert.equal(lessons[0].text, 'Course material');
     await request(route + '/progress', 200, { lessonId: lessons[0].id }, studentToken);
+    await request(route + '/progress', 200, { lessonId: lessons[1].id }, studentToken);
     assert.equal((await request(route, 200, undefined, studentToken)).course.progress, 100);
     assert.deepEqual((await request(route, 200, undefined, teacherToken)).students, [{ name: 'Test Student' }]);
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -83,14 +87,22 @@
     await request(route + '/restore', 403, {}, teacherToken);
     await request(route + '/restore', 200, {}, admin);
     assert.equal((await request(route, 200, undefined, activeToken)).course.progress, 100);
-    const draft = (await request('courses', 201, { title: 'Draft Module' }, teacherToken)).course;
-    const draftRoute = 'courses/' + draft.id;
-    await request(draftRoute + '/archive', 403, {}, teacherToken);
-    await request(draftRoute + '/archive', 200, {}, admin);
-    await request(draftRoute + '/archive', 200, {}, admin);
-    assert.deepEqual(await request(draftRoute + '/moderation', 200, undefined, admin), { assets: [] });
-    await request(draftRoute + '/moderation', 403, undefined, teacherToken);
-    await request(draftRoute + '/restore', 200, {}, admin);
-    assert.equal((await request(draftRoute, 200, undefined, teacherToken)).course.status, 'draft');
+    await request(route + '/archive', 403, {}, teacherToken);
+    assert.deepEqual(await request(route + '/moderation', 200, undefined, admin), { assets: [] });
+    await request(route + '/moderation', 403, undefined, teacherToken);
+    const thread = await request(route + '/message_create', 200, { kind: 'question', subject: 'Private', text: 'Can you help?' }, activeToken);
+    const secondStudent = 'other-student@example.test';
+    await request('register', 201, { email: secondStudent, password, name: 'Other Student' });
+    const secondStudentToken = (await login(secondStudent)).token;
+    await request(route + '/enroll', 200, {}, secondStudentToken);
+    assert.deepEqual((await request(route + '/module_page', 200, undefined, secondStudentToken)).conversations, []);
+    await request(route + '/message_reply', 404, { threadId: thread.id, text: 'Not my thread' }, secondStudentToken);
+    await request(route + '/message_reply', 200, { threadId: thread.id, text: 'Of course.' }, teacherToken);
+    assert.equal((await request(route + '/module_page', 200, undefined, activeToken)).conversations[0].messages.length, 2);
+    await request(route + '/message_status', 403, { threadId: thread.id, closed: true }, teacherToken);
+    await request(route + '/message_status', 200, { threadId: thread.id, closed: true }, admin);
+    await request(route + '/message_reply', 409, { threadId: thread.id, text: 'Thanks.' }, activeToken);
+    await request(route + '/message_status', 200, { threadId: thread.id, closed: false }, admin);
+    await request(route + '/message_reply', 200, { threadId: thread.id, text: 'Thanks.' }, activeToken);
   });
 })();

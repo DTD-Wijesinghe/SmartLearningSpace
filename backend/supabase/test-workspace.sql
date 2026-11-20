@@ -28,7 +28,9 @@ begin
   perform set_config('request.jwt.claim.sub', teacher, true);
   course := jsonb_build_object('courseId', public.sls_workspace('create','{"title":"QA Course"}')->'course'->>'id');
   perform public.sls_workspace('lessons', course || '{"title":"QA Lesson","text":"Protected test text"}');
-  perform public.sls_workspace('publish', course);
+  if public.sls_workspace('course',course)->'course'->>'status' = 'draft' then
+    perform public.sls_workspace('publish', course);
+  end if;
   perform set_config('request.jwt.claim.sub', student, true);
   assert public.sls_workspace('me')->'user'->>'role' = 'student';
   begin

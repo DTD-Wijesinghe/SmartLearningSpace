@@ -33,6 +33,8 @@ function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
     call('/rest/v1/rpc/sls_workspace', { token, body: { action, payload } });
   const serviceRpc = (token, action, payload = {}) =>
     call('/rest/v1/rpc/sls_module_services', { token, body: { action, payload } });
+  const pageRpc = (token, action, payload) =>
+    call('/rest/v1/rpc/sls_module_page', { token, body: { action, payload } });
   const confirmAsset = serviceKey ? body => call('/rest/v1/rpc/sls_confirm_material', {
     apiKey: serviceKey, token: serviceKey.startsWith('eyJ') ? serviceKey : undefined, body,
   }) : null;
@@ -60,6 +62,15 @@ function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
       return { status: 200, value: await moduleService(token, 'capabilities') };
     if (post && route === '/api/help/ai')
       return { status: 200, value: await moduleService(token, 'chat', null, body) };
+    const page = /^\/api\/courses\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})\/(module_page|message_create|message_reply|message_status|review_asset)$/.exec(route);
+    if (page && (page[2] === 'module_page' ? req.method === 'GET' : post)) {
+      const action = page[2] === 'module_page' ? 'read' : page[2];
+      const value = await pageRpc(token, action, { ...body, courseId: page[1] });
+      if (action !== 'review_asset') return { status: 200, value };
+      if (!value) fail(404, 'Material not found.');
+      if (!providers.r2) fail(503, 'File storage is unavailable.');
+      return { status: 200, value: { url: await providers.r2.download(value), mime: value.mime } };
+    }
     const moderation = /^\/api\/courses\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})\/(moderation|archive|restore|material_moderation)$/.exec(route);
     if (moderation && (moderation[2] === 'moderation' ? req.method === 'GET' : post))
       return { status: 200, value: await serviceRpc(token, moderation[2], { ...body, courseId: moderation[1] }) };

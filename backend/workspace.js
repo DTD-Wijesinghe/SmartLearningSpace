@@ -17,6 +17,45 @@ function optional(value, label, max, fallback = '') {
   return value.trim();
 }
 
+function modulePage(data, course, user, action, body, { admin, owner, learner, active }) {
+  const threads = course.conversations || [];
+  const visible = thread => admin || owner || (learner && thread.student === user.email);
+  if (action === 'module_page') {
+    return {
+      outline: (course.content || []).map(({ id, title, description }) => ({ id, title, description })),
+      assets: [],
+      conversations: threads.filter(visible).map(({ id, kind, subject, studentName, closed, messages }) =>
+        ({ id, kind, subject, student: studentName, closed, messages })),
+    };
+  }
+  if (!active && !(admin && action === 'message_status')) fail(409, 'This module is closed to new messages.');
+  if (action === 'message_create') {
+    if (!learner) fail(403, 'Enroll in this module to contact your teacher.');
+    if (!['question', 'feedback'].includes(body.kind)) fail(400, 'Choose a message type.');
+    const subject = required(body.subject, 'Subject');
+    const message = { author: user.name, role: user.role, text: required(body.text, 'Message', 2000) };
+    const id = randomUUID();
+    (course.conversations ||= []).unshift({ id, kind: body.kind, subject, student: user.email,
+      studentName: user.name, closed: false, messages: [message] });
+    return { id };
+  }
+  const thread = threads.find(item => item.id === body.threadId && visible(item));
+  if (!thread) fail(404, 'Conversation not found.');
+  if (action === 'message_status') {
+    if (!admin) fail(403, 'Administrator access required.');
+    if (typeof body.closed !== 'boolean') fail(400, 'Choose whether to close or reopen the conversation.');
+    if (thread.closed !== body.closed) {
+      thread.closed = body.closed;
+      (data.audit ||= []).push({ action: thread.closed ? 'conversation.closed' : 'conversation.reopened',
+        actor: user.email, target: thread.id, at: new Date().toISOString() });
+    }
+    return { ok: true };
+  }
+  if (thread.closed) fail(409, 'This conversation is closed.');
+  thread.messages.push({ author: user.name, role: user.role, text: required(body.text, 'Reply', 2000) });
+  return { id: thread.id };
+}
+
 function workspace(data, user, method, route, body) {
   const admin = user.role === 'admin';
   const teacher = user.role === 'teacher';
@@ -54,7 +93,7 @@ function workspace(data, user, method, route, body) {
     if (method === 'GET') return result({ courses: data.courses.filter(visible).map(summarize) });
     if (method === 'POST') {
       if (!teacher) fail(403, 'Teacher access required.');
-      const course = { id: randomUUID(), title: required(body.title, 'Title'), status: 'draft',
+      const course = { id: randomUUID(), title: required(body.title, 'Title'), status: 'published',
         description: optional(body.description, 'Description', 2000), subject: optional(body.subject, 'Subject', 100),
         teacher: user.name, owner: user.email, content: [], students: [] };
       addRevision(course);
@@ -85,12 +124,17 @@ function workspace(data, user, method, route, body) {
       actor: user.email, target: account.email, at: new Date().toISOString() });
     return result({ suspended: account.suspended });
   }
-  const match = /^\/api\/courses\/([\w-]+)(?:\/(enroll|publish|lessons|progress|edit|suspend|moderation|archive|restore))?$/.exec(route);
+  const match = /^\/api\/courses\/([\w-]+)(?:\/(enroll|publish|lessons|progress|edit|suspend|moderation|archive|restore|module_page|message_create|message_reply|message_status))?$/.exec(route);
   if (!match) fail(404, 'Route not found.');
   const action = match[2];
   if (['moderation', 'archive', 'restore'].includes(action) && !admin) fail(403, 'Administrator access required.');
   const course = data.courses.find(item => item.id === match[1] && visible(item));
   if (!course) fail(404, 'Course not found.');
+  const pageRead = action === 'module_page' && method === 'GET';
+  const messageWrite = ['message_create', 'message_reply', 'message_status'].includes(action) && method === 'POST';
+  if (pageRead || messageWrite) return result(modulePage(data, course, user, action, body, {
+    admin, owner: owns(course), learner: student && enrolled(course), active: published(course),
+  }));
   if (method === 'GET' && action === 'moderation') return result({ assets: [] });
   if (method === 'GET' && !action) {
     return result({ course: summarize(course), lessons: owns(course) || admin || enrolled(course) ? course.content || [] : [],
@@ -134,7 +178,7 @@ function workspace(data, user, method, route, body) {
     }
   } else if (action === 'lessons' && owns(course) && course.status !== 'suspended') {
     (course.content ||= []).push({ id: randomUUID(), title: required(body.title, 'Lesson title'),
-      text: required(body.text, 'Lesson text', 12000), description: optional(body.description, 'Lesson description', 1000) });
+      text: optional(body.text, 'Lesson notes', 12000), description: optional(body.description, 'Lesson description', 1000) });
   } else if (action === 'progress' && student && enrolled(course)) {
     if (!course.content?.some(lesson => lesson.id === body.lessonId)) fail(404, 'Lesson not found.');
     const completed = ((course.progressByStudent ||= {})[user.email] ||= []);
