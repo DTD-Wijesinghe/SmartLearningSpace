@@ -59,9 +59,39 @@ button:disabled { opacity: .65; cursor: wait; }
 .theme-toggle { border: 0; background: var(--soft); color: var(--accent); border-radius: 50%; width: 2.5rem; min-height: 2.5rem; padding: 0; font-size: 1.15rem; }
 main { max-width: 86rem; min-height: 76vh; margin: auto; padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1rem, 4vw, 3.5rem) clamp(2rem, 6vw, 5rem); }
 footer { border-top: 1px solid var(--line); color: var(--muted); background: var(--surface); }
-footer div { max-width: 86rem; margin: auto; padding: 1.4rem clamp(1rem, 4vw, 3.5rem); display: flex; flex-wrap: wrap; gap: .55rem 1.1rem; align-items: center; }
+.footer-inner {
+  max-width: 86rem;
+  margin: auto;
+  padding: 1rem clamp(1rem, 4vw, 3.5rem);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: .85rem 2rem;
+}
+.footer-product, .footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .25rem 1rem;
+}
+.footer-links { gap: .85rem 1.3rem; }
+.footer-credit { display: inline-flex; align-items: center; gap: .65rem; }
+.footer-logo {
+  flex: 0 0 2.5rem;
+  height: 2.5rem;
+  border-radius: .65rem;
+  /* Frame the company symbol in the upper-left corner of the supplied artwork. */
+  background: #05122e url("/assets/futora-labs.webp") 5.2% 4.3% / 859% no-repeat;
+}
+.footer-credit-text { display: grid; font-size: .82rem; line-height: 1.2; }
+.footer-credit-text strong { margin-top: .15rem; font-size: .96rem; }
 footer strong { color: var(--ink); }
-footer a { margin-left: auto; }
+.footer-links a { border-inline-start: 1px solid var(--line); padding-inline-start: 1.3rem; }
+@media (max-width: 42rem) {
+  .footer-links { width: 100%; justify-content: space-between; }
+  .footer-links a { border-inline-start: 0; padding-inline-start: 0; }
+}
 .eyebrow { color: var(--accent); font-size: .875rem; font-weight: 750; text-transform: uppercase; letter-spacing: .075em; margin: 0 0 .7rem; }
 .mini-mark { display: inline-grid; place-items: center; background: var(--soft); width: 1.7rem; height: 1.7rem; border-radius: .5rem; margin-right: .25rem; }
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.13fr); align-items: center; gap: clamp(1.65rem, 5vw, 4.65rem); padding: clamp(1.2rem, 3vw, 2.5rem) 0 clamp(2.9rem, 7vw, 6.2rem); }
@@ -143,6 +173,27 @@ textarea { min-height: 7rem; }
 .course-body { padding: .95rem; overflow-wrap: anywhere; }
 .course-body p { color: var(--muted); font-size: .9rem; }
 .course-body button { margin-top: .7rem; width: 100%; }
+.module-link { display: block; text-align: center; margin-top: .75rem; padding: .55rem; border: 1px solid var(--line); border-radius: .6rem; font-weight: 700; text-decoration: none; }
+.course-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.module-heading { border-radius: .9rem; padding: clamp(1rem, 4vw, 2rem); background: var(--soft); margin-bottom: 1rem; }
+.module-description { white-space: pre-wrap; max-width: 68ch; }
+.module-section, .help-desk { margin-top: 1.35rem; }
+.module-section h2 { margin-bottom: .65rem; }
+.module-list { list-style: none; margin: .6rem 0; padding: 0; }
+.module-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .3rem .6rem; border-bottom: 1px solid var(--line); padding: .55rem 0; }
+.module-list li p { width: 100%; overflow-wrap: anywhere; }
+.module-tip { margin: 1rem 0; padding: .8rem; border-radius: .6rem; background: var(--soft); }
+.module-tip strong { display: block; }
+.course-detail > details, .exam { margin: .6rem 0; }
+.exam-question, .submission { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: .65rem; padding: .8rem; margin: .6rem 0; }
+.exam-question label + label { margin-top: .4rem; }
+.exam-question legend { max-width: 100%; overflow-wrap: anywhere; font-weight: 700; }
+[data-question-list] { width: 100%; }
+.provider-status { white-space: pre-wrap; overflow-wrap: anywhere; }
+.provider-panel video { display: block; width: 100%; max-height: 35rem; border-radius: .65rem; background: #17192f; }
+.provider-panel small { display: block; color: var(--muted); }
+.provider-panel button { margin-right: .4rem; }
+.live-media { display: grid; gap: .6rem; }
 .status, .role-pill { display: inline-block; border-radius: 2rem; padding: .2rem .55rem; background: var(--soft); color: var(--accent); font-size: .82rem; font-weight: 740; white-space: normal; }
 .status { background: #fff; color: inherit; }
 .progress-label { display: flex; justify-content: space-between; margin-top: .7rem; font-size: .85rem; }

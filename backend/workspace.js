@@ -10,6 +10,13 @@ function required(value, label, max = 160) {
   return value.trim();
 }
 
+function optional(value, label, max, fallback = '') {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || value.trim().length > max)
+    fail(400, `${label} may contain at most ${max} characters.`);
+  return value.trim();
+}
+
 function workspace(data, user, method, route, body) {
   const admin = user.role === 'admin';
   const teacher = user.role === 'teacher';
@@ -20,12 +27,17 @@ function workspace(data, user, method, route, body) {
   const visible = course => admin || owns(course) || (student && published(course));
   const summarize = course => ({
     id: course.id, title: course.title, teacher: course.teacher, status: course.status,
+    description: course.description || '', subject: course.subject || '',
     enrolled: student && enrolled(course),
     lessonCount: (course.content || []).length,
     progress: student && enrolled(course) && course.content?.length
       ? Math.round((course.progressByStudent?.[user.email]?.length || 0) / course.content.length * 100) : 0,
   });
   const result = (value, status = 200) => ({ value, status, changed: method !== 'GET' });
+  const addRevision = course => {
+    const { title, subject, description, status } = course;
+    (course.history ||= []).unshift({ snapshot: { title, subject, description, status }, recorded_at: new Date().toISOString() });
+  };
   if (method === 'GET' && route === '/api/me') return result({ user });
   if (method === 'GET' && route === '/api/dashboard') {
     const courses = data.courses.filter(visible);
@@ -43,7 +55,9 @@ function workspace(data, user, method, route, body) {
     if (method === 'POST') {
       if (!teacher) fail(403, 'Teacher access required.');
       const course = { id: randomUUID(), title: required(body.title, 'Title'), status: 'draft',
+        description: optional(body.description, 'Description', 2000), subject: optional(body.subject, 'Subject', 100),
         teacher: user.name, owner: user.email, content: [], students: [] };
+      addRevision(course);
       data.courses.push(course);
       return result({ course: summarize(course) }, 201);
     }
@@ -80,6 +94,9 @@ function workspace(data, user, method, route, body) {
     return result({ course: summarize(course), lessons: owns(course) || admin || enrolled(course) ? course.content || [] : [],
       students: owns(course) ? data.users.filter(enrolledUser => (course.students || []).includes(enrolledUser.email))
         .map(({ name }) => ({ name })) : undefined,
+      history: owns(course) ? (course.history || []).slice(0, 15) : [],
+      learnerProgress: owns(course) ? data.users.filter(learner => (course.students || []).includes(learner.email))
+        .map(learner => ({ name: learner.name, completed: course.progressByStudent?.[learner.email]?.length || 0 })) : [],
       completed: student && enrolled(course) ? course.progressByStudent?.[user.email] || [] : [] });
   }
   if (method !== 'POST') fail(405, 'Method not allowed.');
@@ -88,14 +105,19 @@ function workspace(data, user, method, route, body) {
   } else if (action === 'publish' && owns(course) && course.status === 'draft') {
     if (!course.content?.length) fail(409, 'Add a lesson before publishing.');
     course.status = 'published';
+    addRevision(course);
   } else if (action === 'edit' && owns(course) && course.status !== 'suspended') {
     course.title = required(body.title, 'Title');
+    course.description = optional(body.description, 'Description', 2000, course.description);
+    course.subject = optional(body.subject, 'Subject', 100, course.subject);
+    addRevision(course);
   } else if (action === 'suspend' && admin && published(course)) {
     course.status = 'suspended';
+    addRevision(course);
     (data.audit ||= []).push({ action: 'course.suspended', actor: user.email, target: course.id, at: new Date().toISOString() });
   } else if (action === 'lessons' && owns(course) && course.status !== 'suspended') {
     (course.content ||= []).push({ id: randomUUID(), title: required(body.title, 'Lesson title'),
-      text: required(body.text, 'Lesson text', 12000) });
+      text: required(body.text, 'Lesson text', 12000), description: optional(body.description, 'Lesson description', 1000) });
   } else if (action === 'progress' && student && enrolled(course)) {
     if (!course.content?.some(lesson => lesson.id === body.lessonId)) fail(404, 'Lesson not found.');
     const completed = ((course.progressByStudent ||= {})[user.email] ||= []);

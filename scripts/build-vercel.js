@@ -10,7 +10,9 @@ if (backend.protocol !== 'https:' || backend.username || backend.password ||
 const output = join(root, '.vercel', 'output');
 const staticRoot = join(output, 'static');
 mkdirSync(join(staticRoot, 'assets'), { recursive: true });
-for (const asset of ['index.html', 'app.js', 'workspace.css', 'assets/smartlearning-logo.png', 'assets/learning-studio.webp', 'assets/teaching-studio.webp']) {
+mkdirSync(join(staticRoot, 'vendor'), { recursive: true });
+copyFileSync(join(root, 'node_modules/livekit-client/dist/livekit-client.umd.js'), join(staticRoot, 'vendor/livekit.js'));
+for (const asset of ['index.html', 'app.js', 'workspace.css', 'assets/smartlearning-logo.png', 'assets/learning-studio.webp', 'assets/teaching-studio.webp', 'assets/futora-labs.webp']) {
   copyFileSync(join(root, asset), join(staticRoot, asset));
 }
 writeFileSync(join(output, 'config.json'), JSON.stringify({
@@ -18,7 +20,7 @@ writeFileSync(join(output, 'config.json'), JSON.stringify({
   routes: [
     { src: '^/api/(.*)$', dest: backend.origin + '/api/$1' },
     {
-      src: '^/(|login|register|(?:admin|teacher|student)/dashboard)$',
+      src: '^/(|login|register|(?:admin|teacher|student)/dashboard|modules/[a-zA-Z0-9_-]+)$',
       dest: '/index.html',
       headers: {
         'X-Content-Type-Options': 'nosniff',

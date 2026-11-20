@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     branch: integration/local-core
-    buildCommand: node --check backend/server.js && node --check backend/supabase-api.js
+    buildCommand: npm ci --omit=dev && node --check backend/server.js && node --check backend/supabase-api.js
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:

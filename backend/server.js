@@ -6,8 +6,9 @@ const { workspace, required, fail } = require('./workspace');
 
 const root = path.resolve(__dirname, '..');
 const assets = new Set(['index.html', 'app.js', 'dashboard.css', 'styles.css', 'fixes.css', 'pages.css', 'modern.css',
-  'responsive-fixes.css', 'workspace.css', 'assets/smartlearning-logo.png', 'assets/learning-studio.webp', 'assets/teaching-studio.webp']);
+  'responsive-fixes.css', 'workspace.css', 'assets/smartlearning-logo.png', 'assets/learning-studio.webp', 'assets/teaching-studio.webp', 'assets/futora-labs.webp']);
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp' };
+const livekitScript = 'node_modules/livekit-client/dist/livekit-client.umd.js';
 const roles = new Set(['admin', 'teacher', 'student']);
 
 function hash(password) {
@@ -39,7 +40,7 @@ async function readBody(req) {
   }
 }
 
-function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPassword, cloudApi }) {
+function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPassword, cloudApi, providers = {} }) {
   if (!cloudApi) fs.mkdirSync(path.dirname(file), { recursive: true });
   function save(data) {
     const temp = file + '.tmp';
@@ -63,7 +64,11 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
   return http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    const connect = [providers.r2?.origin, providers.live?.origin, providers.live?.origin?.replace(/^wss:/, 'https:')].filter(Boolean).join(' ');
+    res.setHeader('Content-Security-Policy', [
+      "default-src 'self'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'self'",
+      `connect-src 'self' ${connect}`, `media-src 'self' blob: ${providers.r2?.origin || ''}`,
+    ].join('; '));
     const route = new URL(req.url, 'http://localhost').pathname;
     const send = (status, value) => {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -72,9 +77,10 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
     try {
       if (!route.startsWith('/api/')) {
         const asset = route.slice(1);
-        const page = route === '/' || /^\/(login|register|(?:admin|teacher|student)\/dashboard)$/.test(route);
-        if (req.method !== 'GET' || (!page && !assets.has(asset))) return send(404, { error: 'Not found.' });
-        const relative = page ? 'index.html' : asset;
+        const page = route === '/' || /^\/(login|register|(?:admin|teacher|student)\/dashboard|modules\/[\w-]+)$/.test(route);
+        const liveScript = asset === 'vendor/livekit.js';
+        if (req.method !== 'GET' || (!page && !assets.has(asset) && !liveScript)) return send(404, { error: 'Not found.' });
+        const relative = page ? 'index.html' : liveScript ? livekitScript : asset;
         res.writeHead(200, { 'Content-Type': types[path.extname(relative)] });
         return res.end(fs.readFileSync(path.join(root, relative)));
       }
@@ -141,14 +147,16 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
 
 if (require.main === module) {
   const production = process.env.NODE_ENV === 'production';
+  const providers = require('./providers').createProviders(process.env);
   const cloudApi = process.env.SUPABASE_URL || production
-    ? require('./supabase-api').createSupabaseApi({ url: process.env.SUPABASE_URL, key: process.env.SUPABASE_PUBLISHABLE_KEY })
+    ? require('./supabase-api').createSupabaseApi({ url: process.env.SUPABASE_URL, key: process.env.SUPABASE_PUBLISHABLE_KEY,
+      serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY, providers })
     : undefined;
   const port = Number(process.env.PORT || process.env.SMARTLEARNING_API_PORT || 8787);
   const adminPassword = process.env.SMARTLEARNING_ADMIN_PASSWORD;
   if (adminPassword && (adminPassword.length < 12 || adminPassword.length > 128))
     throw new Error('SMARTLEARNING_ADMIN_PASSWORD must have 12–128 characters.');
-  createServer({ file: path.resolve(process.env.SMARTLEARNING_DATA_FILE || 'work/local-data.json'), adminPassword, cloudApi })
+  createServer({ file: path.resolve(process.env.SMARTLEARNING_DATA_FILE || 'work/local-data.json'), adminPassword, cloudApi, providers })
     .listen(port, production ? '0.0.0.0' : '127.0.0.1', () => console.log('SmartLearningSpace listening on port ' + port));
 }
 
