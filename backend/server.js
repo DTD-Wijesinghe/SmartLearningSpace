@@ -39,15 +39,15 @@ async function readBody(req) {
   }
 }
 
-function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPassword }) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPassword, cloudApi }) {
+  if (!cloudApi) fs.mkdirSync(path.dirname(file), { recursive: true });
   function save(data) {
     const temp = file + '.tmp';
     fs.writeFileSync(temp, JSON.stringify(data, null, 2), { mode: 0o600 });
     fs.renameSync(temp, file);
   }
-  let data = JSON.parse(fs.readFileSync(fs.existsSync(file) ? file : seed, 'utf8'));
-  for (const account of data.users) {
+  let data = cloudApi ? null : JSON.parse(fs.readFileSync(fs.existsSync(file) ? file : seed, 'utf8'));
+  for (const account of data?.users || []) {
     if (account.password) {
       const password = account.role === 'admin' ? adminPassword : undefined;
       if (account.role !== 'admin' || password) account.passwordHash = hash(password || account.password);
@@ -55,7 +55,7 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
     }
     if (account.role === 'admin' && !account.passwordHash && adminPassword) account.passwordHash = hash(adminPassword);
   }
-  save(data);
+  if (data) save(data);
   const sessions = new Map();
   const attempts = new Map();
   const publicUser = ({ email, role, name }) => ({ email, role, name });
@@ -78,8 +78,12 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
         res.writeHead(200, { 'Content-Type': types[path.extname(relative)] });
         return res.end(fs.readFileSync(path.join(root, relative)));
       }
-      if (req.method === 'GET' && route === '/api/health') return send(200, { ok: true, mode: 'local' });
+      if (req.method === 'GET' && route === '/api/health') return send(200, { ok: true, mode: cloudApi ? 'supabase' : 'local' });
       const body = await readBody(req);
+      if (cloudApi) {
+        const result = await cloudApi(req, route, body);
+        return send(result.status, result.value);
+      }
       if (req.method === 'POST' && ['/api/login', '/api/register'].includes(route)) {
         const now = Date.now();
         for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
@@ -136,13 +140,16 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
 }
 
 if (require.main === module) {
-  if (process.env.NODE_ENV === 'production') throw new Error('Configure a production database and identity provider before serving public traffic.');
-  const port = Number(process.env.SMARTLEARNING_API_PORT || 8787);
+  const production = process.env.NODE_ENV === 'production';
+  const cloudApi = process.env.SUPABASE_URL || production
+    ? require('./supabase-api').createSupabaseApi({ url: process.env.SUPABASE_URL, key: process.env.SUPABASE_PUBLISHABLE_KEY })
+    : undefined;
+  const port = Number(process.env.PORT || process.env.SMARTLEARNING_API_PORT || 8787);
   const adminPassword = process.env.SMARTLEARNING_ADMIN_PASSWORD;
   if (adminPassword && (adminPassword.length < 12 || adminPassword.length > 128))
     throw new Error('SMARTLEARNING_ADMIN_PASSWORD must have 12–128 characters.');
-  createServer({ file: path.resolve(process.env.SMARTLEARNING_DATA_FILE || 'work/local-data.json'), adminPassword })
-    .listen(port, '127.0.0.1', () => console.log('SmartLearningSpace at http://127.0.0.1:' + port));
+  createServer({ file: path.resolve(process.env.SMARTLEARNING_DATA_FILE || 'work/local-data.json'), adminPassword, cloudApi })
+    .listen(port, production ? '0.0.0.0' : '127.0.0.1', () => console.log('SmartLearningSpace listening on port ' + port));
 }
 
 module.exports = { createServer };

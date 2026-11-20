@@ -174,7 +174,9 @@
         go(dashboard(), true);
       } else if (action === 'register') {
         element.reset();
-        status.textContent = result.pending ? 'Your application is awaiting administrator approval.' : 'Account created. You can sign in.';
+        status.textContent = result.checkEmail
+          ? 'Check your email to confirm your account. Teacher accounts also require administrator approval.'
+          : result.pending ? 'Your application is awaiting administrator approval.' : 'Account created. You can sign in.';
       } else {
         await render();
         const courseId = /^courses\/([^/]+)/.exec(action)?.[1];

@@ -11,5 +11,6 @@ coverage/
 *.pfx
 *.sql.gz
 /.openai/
+/.vercel/
 /outputs/
 /work/

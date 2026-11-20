@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: smartlearningspace-api
+    runtime: node
+    plan: free
+    branch: integration/local-core
+    buildCommand: node --check backend/server.js && node --check backend/supabase-api.js
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
