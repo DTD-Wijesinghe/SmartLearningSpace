@@ -8,12 +8,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="dashboard.css" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="fixes.css" />
   </head>
   <body>
+    <section class="login-screen" id="loginScreen">
+      <div class="login-visual"><div class="visual-grid"></div><img src="assets/smartlearning-logo.png" alt="SmartLearningSpace logo" class="login-logo" /><p class="visual-kicker">YOUR SPACE FOR SMARTER LEARNING</p><h1>Make every learning moment<br /><em>count.</em></h1><p class="visual-copy">One calm workspace for teaching, learning, and everything in between.</p><div class="login-quote"><span>✦</span><p>“The best learning spaces make progress feel possible.”<small>SmartLearningSpace philosophy</small></p></div></div>
+      <div class="login-panel"><div class="login-brand"><img src="assets/smartlearning-logo.png" alt="" /><strong>Smart<span>Learning</span>Space</strong></div><div class="login-card"><p class="eyebrow">WELCOME BACK</p><h2>Sign in to your space</h2><p class="login-subtitle">Use one account to access your role-based workspace.</p><form id="loginForm"><label>Email address<input id="emailInput" type="email" placeholder="you@example.com" required /></label><label>Password<input id="passwordInput" type="password" placeholder="Enter your password" required /></label><div class="form-row"><label class="remember"><input type="checkbox" checked /> Remember me</label><button class="forgot" type="button">Forgot password?</button></div><button class="login-button" type="submit">Continue to workspace <span>→</span></button><p class="login-error" id="loginError"></p></form><div class="divider"><span>LOCAL DEMO ACCOUNTS</span></div><div class="demo-accounts"><button type="button" data-demo="student"><span class="demo-dot student-dot"></span><span><strong>Student</strong><small>student@smartlearning.local</small></span><b>→</b></button><button type="button" data-demo="teacher"><span class="demo-dot teacher-dot"></span><span><strong>Teacher / Lecturer</strong><small>teacher@smartlearning.local</small></span><b>→</b></button><button type="button" data-demo="admin"><span class="demo-dot admin-dot"></span><span><strong>System Administrator</strong><small>admin@smartlearning.local</small></span><b>→</b></button></div><p class="demo-note">Demo accounts are local-only placeholders. Connect Supabase Auth for real credentials.</p></div><p class="login-footer">© 2026 SmartLearningSpace <span>Privacy · Security</span></p></div>
+    </section>
     <div class="app-shell">
       <aside class="sidebar" id="sidebar">
-        <div class="brand"><span class="brand-mark">✦</span><span>Smart<span>Learning</span>Space</span></div>
+        <div class="brand"><img src="assets/smartlearning-logo.png" alt="SmartLearningSpace logo" /><span>Smart<span>Learning</span>Space</span></div>
         <div class="workspace-label">WORKSPACE <span class="status-dot"></span></div>
         <nav class="nav" aria-label="Primary navigation">
           <button class="nav-item active" data-view="overview"><span>⌂</span> Overview</button>
