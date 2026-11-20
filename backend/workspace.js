@@ -85,11 +85,13 @@ function workspace(data, user, method, route, body) {
       actor: user.email, target: account.email, at: new Date().toISOString() });
     return result({ suspended: account.suspended });
   }
-  const match = /^\/api\/courses\/([\w-]+)(?:\/(enroll|publish|lessons|progress|edit|suspend))?$/.exec(route);
+  const match = /^\/api\/courses\/([\w-]+)(?:\/(enroll|publish|lessons|progress|edit|suspend|moderation|archive|restore))?$/.exec(route);
   if (!match) fail(404, 'Route not found.');
+  const action = match[2];
+  if (['moderation', 'archive', 'restore'].includes(action) && !admin) fail(403, 'Administrator access required.');
   const course = data.courses.find(item => item.id === match[1] && visible(item));
   if (!course) fail(404, 'Course not found.');
-  const action = match[2];
+  if (method === 'GET' && action === 'moderation') return result({ assets: [] });
   if (method === 'GET' && !action) {
     return result({ course: summarize(course), lessons: owns(course) || admin || enrolled(course) ? course.content || [] : [],
       students: owns(course) ? data.users.filter(enrolledUser => (course.students || []).includes(enrolledUser.email))
@@ -112,9 +114,24 @@ function workspace(data, user, method, route, body) {
     course.subject = optional(body.subject, 'Subject', 100, course.subject);
     addRevision(course);
   } else if (action === 'suspend' && admin && published(course)) {
+    course.previousStatus = course.status;
     course.status = 'suspended';
     addRevision(course);
     (data.audit ||= []).push({ action: 'course.suspended', actor: user.email, target: course.id, at: new Date().toISOString() });
+  } else if (action === 'archive' || action === 'restore') {
+    const archiving = action === 'archive';
+    if (archiving === (course.status !== 'suspended')) {
+      if (archiving) {
+        course.previousStatus = course.status;
+        course.status = 'suspended';
+      } else {
+        course.status = course.previousStatus || 'published';
+        delete course.previousStatus;
+      }
+      addRevision(course);
+      (data.audit ||= []).push({ action: archiving ? 'course.archived' : 'course.restored',
+        actor: user.email, target: course.id, at: new Date().toISOString() });
+    }
   } else if (action === 'lessons' && owns(course) && course.status !== 'suspended') {
     (course.content ||= []).push({ id: randomUUID(), title: required(body.title, 'Lesson title'),
       text: required(body.text, 'Lesson text', 12000), description: optional(body.description, 'Lesson description', 1000) });

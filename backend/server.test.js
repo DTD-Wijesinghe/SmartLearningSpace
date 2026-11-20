@@ -80,5 +80,17 @@
     const activeToken = (await login(student)).token;
     await request(route + '/suspend', 200, {}, admin);
     await request(route, 404, undefined, activeToken);
+    await request(route + '/restore', 403, {}, teacherToken);
+    await request(route + '/restore', 200, {}, admin);
+    assert.equal((await request(route, 200, undefined, activeToken)).course.progress, 100);
+    const draft = (await request('courses', 201, { title: 'Draft Module' }, teacherToken)).course;
+    const draftRoute = 'courses/' + draft.id;
+    await request(draftRoute + '/archive', 403, {}, teacherToken);
+    await request(draftRoute + '/archive', 200, {}, admin);
+    await request(draftRoute + '/archive', 200, {}, admin);
+    assert.deepEqual(await request(draftRoute + '/moderation', 200, undefined, admin), { assets: [] });
+    await request(draftRoute + '/moderation', 403, undefined, teacherToken);
+    await request(draftRoute + '/restore', 200, {}, admin);
+    assert.equal((await request(draftRoute, 200, undefined, teacherToken)).course.status, 'draft');
   });
 })();

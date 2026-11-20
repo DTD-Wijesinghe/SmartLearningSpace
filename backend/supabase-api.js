@@ -60,6 +60,9 @@ function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
       return { status: 200, value: await moduleService(token, 'capabilities') };
     if (post && route === '/api/help/ai')
       return { status: 200, value: await moduleService(token, 'chat', null, body) };
+    const moderation = /^\/api\/courses\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})\/(moderation|archive|restore|material_moderation)$/.exec(route);
+    if (moderation && (moderation[2] === 'moderation' ? req.method === 'GET' : post))
+      return { status: 200, value: await serviceRpc(token, moderation[2], { ...body, courseId: moderation[1] }) };
     const serviceRoute = /^\/api\/courses\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})\/(services|reserve_asset|confirm_asset|open_asset|start_live|join_live|end_live|ai_progress|ai_feedback)$/.exec(route);
     if (serviceRoute && ((req.method === 'GET' && serviceRoute[2] === 'services') || (post && serviceRoute[2] !== 'services')))
       return { status: 200, value: await moduleService(token, serviceRoute[2], serviceRoute[1], body) };

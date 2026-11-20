@@ -15,7 +15,7 @@
   const dashboard = () => `/${user.role}/dashboard`;
   const labels = { admin: 'Platform administration', teacher: 'Teaching studio', student: 'Learning workspace' };
   const workspaceCopy = {
-    admin: { description: 'Review accounts, teacher requests, and published courses.', action: 'User management', target: 'users' },
+    admin: { description: 'Manage accounts, modules, and lesson materials.', action: 'User management', target: 'users' },
     teacher: { description: 'Build lessons, publish courses, and follow your enrollments.', action: 'Create a course', target: 'create' },
     student: { description: 'Find your next course, return to your lessons, and track your progress.', action: 'Explore courses', target: 'courses' },
   };
@@ -45,8 +45,9 @@
     sessionStorage.removeItem('sls-session');
   }
 
-  function form(action, fields, caption) {
-    return `<form data-submit="${action}">${fields}<button class="primary" type="submit">${caption}</button><p class="error" role="status"></p></form>`;
+  function form(action, fields, caption, confirmation = '') {
+    const confirmAttribute = confirmation ? ` data-confirm="${escape(confirmation)}"` : '';
+    return `<form data-submit="${action}"${confirmAttribute}>${fields}<button class="primary" type="submit">${caption}</button><p class="error" role="status"></p></form>`;
   }
 
   function homepage() {
@@ -85,7 +86,7 @@
   }
 
   function courseCard(course, index) {
-    const status = { draft: 'Draft', published: 'Published', suspended: 'Suspended', archived: 'Archived',
+    const status = { draft: 'Draft', published: 'Published', suspended: 'Archived', archived: 'Archived',
       in_progress: 'Available', up_next: 'Available', saved: 'Available' }[course.status] || 'Course';
     const progress = Math.max(0, Math.min(100, Number(course.progress) || 0));
     return `<article class="course-card" data-course-card data-enrolled="${course.enrolled ? 'yes' : 'no'}">
@@ -260,11 +261,33 @@
       <ul class="records">${accounts.users.map(account => `<li><div class="record-person">
         <span class="avatar" aria-hidden="true">${escape((account.name || '?').charAt(0).toUpperCase())}</span>
         <div><strong>${escape(account.name)}</strong><small>${escape(account.email)}</small></div></div>
-        <div class="record-right"><span class="role-pill">${escape(account.role)}${account.pending ? ' · Awaiting approval' : ''}${account.suspended ? ' · Suspended' : ''}</span>
+        <div class="record-right"><span class="role-pill">${escape(account.role)}${account.pending ? ' · Awaiting approval' : ''}${account.suspended ? ' · Deactivated' : ''}</span>
         ${account.pending ? form('users/approve', `<input type="hidden" name="email" value="${escape(account.email)}">`, 'Approve') : ''}
         ${account.role !== 'admin' ? form('users/suspension', `<input type="hidden" name="email" value="${escape(account.email)}">
-          <input type="hidden" name="suspended" value="${!account.suspended}">`, account.suspended ? 'Reactivate' : 'Suspend') : ''}</div>
+          <input type="hidden" name="suspended" value="${!account.suspended}">`, account.suspended ? 'Reactivate' : 'Deactivate',
+          account.suspended ? '' : 'Deactivate this account and block its access?') : ''}</div>
       </li>`).join('')}</ul>
+    </section>`;
+  }
+
+  function adminModeration(course, route, moderation) {
+    const archived = course.status === 'suspended';
+    const files = moderation.assets?.map(asset => {
+      const kind = asset.mime.startsWith('video/') ? 'Video' : 'File';
+      const state = asset.archived ? 'Removed' : asset.ready ? 'Available' : 'Pending upload';
+      return `<li><div class="record-person"><div><strong>${escape(asset.name)}</strong>
+        <small>${escape(asset.lesson)} · ${kind} · ${state}</small></div></div>
+        <div class="record-right">${form(route + '/material_moderation',
+          `<input type="hidden" name="assetId" value="${escape(asset.id)}"><input type="hidden" name="archived" value="${!asset.archived}">`,
+          asset.archived ? 'Restore file' : 'Remove file', asset.archived ? '' : 'Remove this file from the module?')}</div></li>`;
+    }).join('');
+    return `<section class="module-section panel">
+      <h2>Module management</h2>
+      ${form(route + (archived ? '/restore' : '/archive'), '', archived ? 'Restore module' : 'Archive module',
+        archived ? '' : 'Archive this module and remove it from student access?')}
+      <h3>Videos and documents</h3>
+      ${moderation.error ? `<p class="error" role="status">${escape(moderation.error)}</p>`
+        : files ? `<ul class="records">${files}</ul>` : '<p class="muted">No uploaded materials in this module.</p>'}
     </section>`;
   }
 
@@ -315,7 +338,7 @@
       const cards = catalog.courses.map(courseCard).join('');
       const role = user.role;
       const copy = workspaceCopy[role];
-      const courseHeading = role === 'student' ? 'Explore courses' : role === 'teacher' ? 'My courses' : 'Course oversight';
+      const courseHeading = role === 'student' ? 'Explore courses' : role === 'teacher' ? 'My courses' : 'Module management';
       const empty = role === 'teacher' ? 'Create your first course to start adding lessons.' : 'Published courses will appear here.';
       main.innerHTML = `<section class="workspace ${role} enter">
         <aside class="workspace-nav">
@@ -373,6 +396,8 @@
       if (current !== revision || request !== courseRevision || !detail.isConnected) return;
       const route = `courses/${id}`;
       const manage = user.role === 'teacher' && course.status !== 'suspended';
+      const moderation = user.role === 'admin'
+        ? await api(route + '/moderation').catch(error => ({ error: error.message })) : null;
       const services = (manage || course.enrolled) && (capabilities.materials || capabilities.live)
         ? await api(route + '/services').catch(() => null) : null;
       if (current !== revision || request !== courseRevision || !detail.isConnected) return;
@@ -380,8 +405,7 @@
         ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</header>
         ${manage && course.status === 'draft' ? form(`${route}/publish`, '', 'Publish course') : ''}
         ${manage ? `<details class="panel"><summary>Edit module details</summary>${form(`${route}/edit`, moduleFields(course), 'Save module')}</details>` : ''}
-        ${user.role === 'admin' && ['published', 'in_progress', 'up_next', 'saved'].includes(course.status) ?
-          form(`${route}/suspend`, '', 'Suspend course') : ''}
+        ${moderation ? adminModeration(course, route, moderation) : ''}
         ${manage ? `<details class="panel"><summary>Add lesson</summary>${form(`${route}/lessons`, '<label>Lesson title<input name="title" maxlength="160" required></label><label>Lesson description<input name="description" maxlength="1000"></label><label>Lesson text<textarea name="text" maxlength="12000" required></textarea></label>', 'Save lesson')}</details>` : ''}
         ${user.role === 'student' && !course.enrolled ? form(`${route}/enroll`, '', 'Enroll') : ''}
         ${students ? `<section class="module-section"><h2>Learner progress</h2>${learnerProgress.length ? `<ul class="module-list">${learnerProgress.map(p => `<li><strong>${escape(p.name)}</strong><span>${escape(p.completed)} of ${lessons.length} lessons complete</span></li>`).join('')}</ul>` : `<p>${students.map(s => escape(s.name)).join(', ') || 'No students enrolled yet.'}</p>`}</section>` : ''}
@@ -565,6 +589,7 @@
     }
     if (!element.dataset.submit) return;
     event.preventDefault();
+    if (element.dataset.confirm && !window.confirm(element.dataset.confirm)) return;
     const button = element.querySelector('button[type="submit"]');
     const status = element.querySelector('[role=status]');
     button.disabled = true;
@@ -584,6 +609,7 @@
     }
     if (values.teacher) values.teacher = true;
     if ('suspended' in values) values.suspended = values.suspended === 'true';
+    if ('archived' in values) values.archived = values.archived === 'true';
     try {
       const result = await api(action, values);
       if (action === 'login') {
