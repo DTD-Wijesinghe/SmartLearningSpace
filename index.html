@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>SmartLearningSpace — Your Space for Smarter Learning</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand"><span class="brand-mark">✦</span><span>Smart<span>Learning</span>Space</span></div>
+        <div class="workspace-label">WORKSPACE <span class="status-dot"></span></div>
+        <nav class="nav" aria-label="Primary navigation">
+          <button class="nav-item active" data-view="overview"><span>⌂</span> Overview</button>
+          <button class="nav-item" data-view="courses"><span>▣</span> My courses</button>
+          <button class="nav-item" data-view="calendar"><span>◷</span> Calendar</button>
+          <button class="nav-item" data-view="analytics"><span>⌁</span> Analytics</button>
+          <button class="nav-item" data-view="resources"><span>◫</span> Resources</button>
+        </nav>
+        <div class="sidebar-spacer"></div>
+        <div class="upgrade-card"><div class="upgrade-icon">✧</div><strong>Make space for focus.</strong><p>Unlock deeper insights and unlimited AI study sessions.</p><button class="text-button">Explore plans <span>→</span></button></div>
+        <div class="profile-mini"><div class="avatar">AM</div><div><strong>Alex Morgan</strong><small>Student workspace</small></div><button class="icon-button">···</button></div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar"><button class="mobile-menu icon-button" id="menuBtn">☰</button><div class="breadcrumb"><span>Workspace</span><b>/</b><strong id="crumb">Overview</strong></div><div class="top-actions"><button class="icon-button" aria-label="Search">⌕</button><button class="icon-button notification" aria-label="Notifications">♧<i></i></button><button class="role-switch" id="roleSwitch">Student <span>⌄</span></button></div></header>
+        <div class="content">
+          <section class="hero-row"><div><p class="eyebrow">THURSDAY, NOVEMBER 20, 2026</p><h1 id="greeting">Good morning, Alex <span>✦</span></h1><p class="subhead">A clear path forward starts with one small step.</p></div><button class="primary-button" id="askButton"><span>✧</span> Ask your AI companion</button></section>
+          <div class="role-banner" id="roleBanner"><div><span class="banner-kicker">STUDENT VIEW</span><strong>Keep your learning momentum</strong><p>Two focused sessions today can keep your week on track.</p></div><div class="banner-orb">◒</div></div>
+
+          <section class="stats-grid" aria-label="Learning summary"><article class="stat-card"><div class="stat-icon blue">◔</div><span>Learning progress</span><strong>68%</strong><small><em class="positive">+8.4%</em> this week</small><div class="sparkline"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article><article class="stat-card"><div class="stat-icon purple">▤</div><span>Focus time</span><strong>12.4h</strong><small><em class="positive">+2.1h</em> this week</small><div class="mini-bars"><i style="height:35%"></i><i style="height:60%"></i><i style="height:45%"></i><i style="height:76%"></i><i style="height:55%"></i><i style="height:92%"></i><i style="height:70%"></i></div></article><article class="stat-card"><div class="stat-icon orange">◇</div><span>Completed lessons</span><strong>24</strong><small>of 36 total lessons</small><div class="progress-line"><i style="width:68%"></i></div></article><article class="stat-card"><div class="stat-icon green">◉</div><span>Current streak</span><strong>7 days</strong><small>Personal best: 12 days</small><div class="streak-dots"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div></article></section>
+
+          <div class="section-heading"><div><h2>Continue learning</h2><p>Pick up right where you left off.</p></div><button class="link-button" data-view="courses">View all <span>→</span></button></div>
+          <section class="learning-grid"><article class="feature-course"><div class="course-art art-indigo"><span>PRODUCT<br/>DESIGN</span><div class="art-shape one"></div><div class="art-shape two"></div></div><div class="course-body"><div class="course-meta"><span class="pill blue-pill">IN PROGRESS</span><span>12 lessons · 6h 40m</span></div><h3>Product design fundamentals</h3><p>with Maya Chen · Design Studio</p><div class="course-progress"><div class="progress-line"><i style="width:72%"></i></div><strong>72%</strong></div><button class="continue-button" id="continueButton">Continue lesson <span>→</span></button></div></article><article class="feature-course"><div class="course-art art-peach"><span>DATA<br/>STORYTELLING</span><div class="art-wave"></div></div><div class="course-body"><div class="course-meta"><span class="pill mint-pill">UP NEXT</span><span>8 lessons · 3h 15m</span></div><h3>Data storytelling with clarity</h3><p>with Rohan Perera · Open School</p><div class="course-progress"><div class="progress-line muted"><i style="width:18%"></i></div><strong>18%</strong></div><button class="continue-button secondary">Open course <span>→</span></button></div></article></section>
+
+          <div class="lower-grid"><section class="panel schedule-panel"><div class="panel-heading"><div><h2>On your radar</h2><p>Upcoming classes and deadlines.</p></div><button class="icon-button">···</button></div><div class="schedule-item"><div class="date-block"><strong>22</strong><span>NOV</span></div><div class="schedule-info"><span class="event-label live">LIVE CLASS</span><h3>Critique &amp; feedback session</h3><p>Product design fundamentals · 10:00 AM</p></div><button class="round-arrow">→</button></div><div class="schedule-item"><div class="date-block"><strong>25</strong><span>NOV</span></div><div class="schedule-info"><span class="event-label due">DUE SOON</span><h3>Data narrative assignment</h3><p>Data storytelling with clarity · 11:59 PM</p></div><button class="round-arrow">→</button></div><div class="schedule-item"><div class="date-block"><strong>28</strong><span>NOV</span></div><div class="schedule-info"><span class="event-label exam">EXAM</span><h3>Design principles checkpoint</h3><p>Product design fundamentals · 45 minutes</p></div><button class="round-arrow">→</button></div></section><section class="panel ai-panel"><div class="ai-glow"></div><div class="panel-heading"><div><span class="ai-label">✧ LEARNING COMPANION</span><h2>What are you curious about?</h2></div><span class="online-chip"><i></i> Ready</span></div><p class="ai-copy">Ask questions grounded in your courses, notes, and progress. Your sources stay in your space.</p><div class="suggestion-row"><button>Explain affordances</button><button>Quiz me on color</button></div><div class="ai-input"><span>Ask anything about your learning...</span><button id="chatButton">↑</button></div><small class="privacy-note">⌁ Answers are grounded in your enrolled course materials.</small></section></div>
+          <footer><span>SmartLearningSpace <b>·</b> Your Space for Smarter Learning.</span><span>Built for thoughtful progress <span class="footer-spark">✦</span></span></footer>
+        </div>
+      </main>
+    </div>
+    <div class="toast" id="toast"></div><div class="modal-backdrop" id="modal"><div class="modal"><button class="modal-close" id="closeModal">×</button><span class="ai-label">✧ AI LEARNING COMPANION</span><h2>Make your next step clearer.</h2><p>Ask about your course materials, request a practice quiz, or get a focused study plan. In the production workspace, responses are grounded in your enrolled content and protected by tenant-aware permissions.</p><div class="modal-prompt"><span>Try “Help me prepare for my checkpoint”</span><button id="sendPrompt">→</button></div><small>Demo interaction · provider credentials required for live AI responses</small></div></div>
+    <script src="app.js"></script>
+  </body>
+</html>
