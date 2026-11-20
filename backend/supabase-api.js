@@ -1,7 +1,8 @@
 const { fail, required } = require('./workspace');
 const { moduleServices } = require('./module-services');
+const { billing } = require('./billing');
 
-function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
+function createSupabaseApi({ url, key, serviceKey, providers = {}, platformBank }) {
   if (!url || !key || new URL(url).protocol !== 'https:') {
     throw new Error('Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.');
   }
@@ -41,6 +42,13 @@ function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
     apiKey: serviceKey, token: serviceKey.startsWith('eyJ') ? serviceKey : undefined, body,
   }) : null;
   const moduleService = moduleServices({ providers, rpc, serviceRpc, confirmAsset });
+  const payments = billing({
+    r2: providers.r2, bank: platformBank,
+    rpc: (token, action, payload) => call('/rest/v1/rpc/sls_billing', { token, body: { action, payload } }),
+    verify: serviceKey ? body => call('/rest/v1/rpc/sls_submit_verified_slip', {
+      apiKey: serviceKey, token: serviceKey.startsWith('eyJ') ? serviceKey : undefined, body,
+    }) : null,
+  });
 
   return async function dispatch(req, route, body) {
     const token = /^Bearer (\S{1,8192})$/.exec(req.headers.authorization || '')?.[1];
@@ -53,13 +61,19 @@ function createSupabaseApi({ url, key, serviceKey, providers = {} }) {
         if (password.length < 12) fail(400, 'Use at least 12 characters.');
         const name = required(body.name, 'Name');
         await call('/auth/v1/signup', { body: { email, password, data: { name, teacher: body.teacher === true } } });
-        return { status: 201, value: { checkEmail: true, pending: body.teacher === true } };
+        return { status: 201, value: { checkEmail: true, pending: false } };
       }
       const auth = await call('/auth/v1/token?grant_type=password', { body: { email, password } });
       const { user } = await rpc(auth.access_token, 'me');
       return { status: 200, value: { user, token: auth.access_token } };
     }
     if (!token) fail(401, 'Sign in to continue.');
+    const payment = /^\/api\/billing(?:\/(reserve|submit|open|save_bank|approve|reject|revoke))?$/.exec(route);
+    if (payment && (payment[1] ? post : req.method === 'GET')) {
+      const params = new URL(req.url, 'http://localhost').searchParams;
+      const payload = payment[1] ? body : { courseId: params.get('course') || undefined };
+      return { status: 200, value: await payments(token, payment[1] || 'read', payload) };
+    }
     const communication = /^\/api\/communications(?:\/(inbox|submit|review|read|read_all))?$/.exec(route);
     if (communication && (!communication[1] || communication[1] === 'inbox' ? req.method === 'GET' : post)) {
       const value = await call('/rest/v1/rpc/sls_communications', {

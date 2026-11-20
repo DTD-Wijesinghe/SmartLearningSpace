@@ -25,6 +25,12 @@ The local integration test covers teacher registration and approval, publishing,
 
 Apply `backend/supabase/migrations/202611200001_core.sql` to the dedicated database. It adds a private schema, enables RLS on its tables and exposes a single role-checked RPC. Verify the migration with `backend/supabase/test-workspace.sql`. The test uses transaction-scoped identities and rolls back all fixture records.
 
+### Manual bank-transfer billing
+
+Apply the remaining migrations in order, including `202611200008_billing.sql`. Set `PLATFORM_BANK_HOLDER`, `PLATFORM_BANK_NAME`, `PLATFORM_BANK_BRANCH`, and `PLATFORM_BANK_ACCOUNT` in the Render server environment. These values are returned to signed-in teachers for subscription payments. The account number is a string so leading zeros are preserved.
+
+Payment slips use the existing private R2 bucket and Supabase service-role configuration. Billing checks use the hosted Supabase path. The local JSON mode remains a preview for the core workspace. The PostgreSQL billing test uses sample identities and rolls back the data it creates.
+
 Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` on the API. Register and confirm the first administrator's account through Supabase Auth, verify its Auth UUID, then change that exact profile's role to `admin` from the Supabase SQL editor. Keep email confirmation enabled and configure the public website URL in Supabase Auth before inviting users. Existing local demo data stays in the local store.
 
 The Render Blueprint declares a free Node web service. On a Vercel project eligible for Hobby, use the Other framework preset and `npm run build`. Set `RENDER_API_ORIGIN` to the Render HTTPS origin at build time. The generated Build Output API configuration proxies `/api/*` and maps supported page routes to the frontend. R2 and other media providers require separate configuration.

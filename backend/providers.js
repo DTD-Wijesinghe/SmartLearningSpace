@@ -21,7 +21,7 @@ function createProviders(env) {
 
   const r2 = s3 && {
     origin: r2Origin,
-    object: asset => ({ Bucket: R2_BUCKET, Key: 'materials/' + asset.id }),
+    object: asset => ({ Bucket: R2_BUCKET, Key: (asset.receipt ? 'payment-slips/' : 'materials/') + asset.id }),
     upload(asset) {
       const command = new PutObjectCommand({ ...this.object(asset), ContentLength: Number(asset.size_bytes),
         ContentType: asset.mime, IfNoneMatch: '*' });
@@ -37,20 +37,36 @@ function createProviders(env) {
         fail(503, 'Storage could not verify the upload.');
       }
     },
+    async fileHeader(asset) {
+      try {
+        const result = await s3.send(new GetObjectCommand({ ...this.object(asset), Range: 'bytes=0-11' }),
+          { abortSignal: AbortSignal.timeout(10000) });
+        return Buffer.from(await result.Body.transformToByteArray());
+      } catch {
+        fail(503, 'Storage could not verify the payment slip.');
+      }
+    },
     download(asset) {
-      const inline = ['application/pdf', 'video/mp4', 'video/webm'].includes(asset.mime);
+      const inline = !asset.receipt && ['application/pdf', 'video/mp4', 'video/webm'].includes(asset.mime);
+      const expiry = asset.receipt ? 120 : asset.mime.startsWith('video/') ? 15000 : 600;
+      const remaining = asset.access_until ? Math.floor((Date.parse(asset.access_until) - Date.now()) / 1000) : expiry;
+      if (remaining < 1) fail(402, 'Renew your access before opening the file.');
+      const receiptExtensions = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+      const disposition = asset.receipt ? 'attachment; filename="payment-slip.' + receiptExtensions[asset.mime] + '"' : inline ? 'inline' : 'attachment';
       return getSignedUrl(s3, new GetObjectCommand({ ...this.object(asset), ResponseContentType: asset.mime,
-        ResponseContentDisposition: inline ? 'inline' : 'attachment' }), { expiresIn: asset.mime.startsWith('video/') ? 15000 : 600 });
+        ResponseContentDisposition: disposition }), { expiresIn: Math.min(expiry, remaining) });
     },
   };
 
   const live = roomService && {
     origin: liveOrigin,
-    async token({ session, identity, name, host }) {
+    async token({ session, identity, name, host, access_until }) {
       const room = 'sls-' + session;
-      const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity, name, ttl: '2m' });
+      const remaining = access_until ? Math.floor((Date.parse(access_until)-Date.now()) / 1000) : 120;
+      if (remaining < 1) fail(402, 'Renew your access before joining the live class.');
+      const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity, name, ttl: Math.min(120,remaining) });
       token.addGrant({ room, roomJoin: true, canPublish: host, canSubscribe: true, canPublishData: false });
-      return { url: liveOrigin, token: await token.toJwt(), host };
+      return { url: liveOrigin, token: await token.toJwt(), host, accessUntil: access_until };
     },
     async close(session) {
       try {

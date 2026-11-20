@@ -311,6 +311,25 @@ textarea { min-height: 7rem; }
 .feedback-entry summary strong { overflow-wrap: anywhere; margin-inline-end: .55rem; }
 .feedback-message { white-space: pre-wrap; }
 .feedback-confirmation { color: var(--accent); font-weight: 650; }
+.payment-panel { margin-top: 1rem; }
+.payment-panel h3 { margin-top: 1rem; }
+.payment-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
+.payment-total strong { font-size: 1.6rem; color: var(--accent); }
+.payment-total span { color: var(--muted); }
+.payment-bank { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .65rem; }
+.payment-bank div { min-width: 0; padding: .7rem; border-radius: .65rem; background: var(--canvas); }
+.payment-bank dt, .payment-records small { color: var(--muted); display: block; }
+.payment-bank dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+.payment-records li > div { min-width: 0; overflow-wrap: anywhere; }
+.payment-records .role-pill { flex-shrink: 0; }
+.payment-lock-preview {
+  min-height: 4.5rem;
+  margin: 1rem .3rem;
+  border-radius: .7rem;
+  background: repeating-linear-gradient(180deg, var(--line) 0 1rem, transparent 1rem 1.75rem);
+  filter: blur(4px);
+  opacity: .48;
+}
 .status, .role-pill { display: inline-block; border-radius: 2rem; padding: .2rem .55rem; background: var(--soft); color: var(--accent); font-size: .82rem; font-weight: 740; white-space: normal; }
 .status { background: #fff; color: inherit; }
 .progress-label { display: flex; justify-content: space-between; margin-top: .7rem; font-size: .85rem; }

@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createProviders } = require('./providers');
 const { moduleServices } = require('./module-services');
+const { billing } = require('./billing');
 
 const id = 'a1111111-1111-4111-a111-111111111111';
 const material = { id, mime: 'application/pdf', size_bytes: 21, ready_at: null };
@@ -29,6 +30,28 @@ test('live tokens are room-scoped and students cannot publish', async () => {
   assert.equal(claims.video.roomJoin, true);
   assert.equal(claims.video.canPublish, false);
   assert.ok(claims.exp - Math.floor(Date.now() / 1000) <= 120);
+});
+
+test('payment slips stay in a separate private prefix and require matching file evidence', async () => {
+  const receipt = { id, mime: 'application/pdf', size_bytes: 21, status: 'uploading', payer: id };
+  const adapter = createProviders({ R2_ACCOUNT_ID: 'abcd'.repeat(8), R2_BUCKET: 'fixture',
+    R2_ACCESS_KEY_ID: 'fixture-id', R2_SECRET_ACCESS_KEY: 'fixture-only-key' }).r2;
+  const url = new URL(await adapter.download({ ...receipt, receipt: true }));
+  assert.equal(url.pathname, '/fixture/payment-slips/' + id);
+  assert.equal(url.searchParams.get('X-Amz-Expires'), '120');
+  assert.match(url.searchParams.get('response-content-disposition'), /^attachment/);
+  let header = Buffer.from('unexpected');
+  let verifies = 0;
+  const api = billing({
+    rpc: async () => receipt,
+    r2: { inspect: async () => ({ mime: receipt.mime, size: receipt.size_bytes }), fileHeader: async () => header },
+    verify: async () => { verifies++; return true; },
+  });
+  await assert.rejects(api('student', 'submit', { slipId: id }), { status: 409 });
+  assert.equal(verifies, 0);
+  header = Buffer.from('%PDF-1.7');
+  assert.deepEqual(await api('student', 'submit', { slipId: id }), { ok: true });
+  assert.equal(verifies, 1);
 });
 
 test('an invite cannot join or end a replacement live class', async () => {

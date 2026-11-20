@@ -13,6 +13,7 @@
   let liveKitReady;
   let classRecorder;
   let savedRecording;
+  let billingTimer;
   const liveId = value => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(value || '');
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -89,7 +90,7 @@
       </section>
       <section class="section-wrap faq"><header class="section-head"><h2>Getting started</h2></header><div class="faq-list">
         <details><summary>How do I join a course?</summary><p>Sign in as a student, open a published course under Explore courses, and choose Enroll.</p></details>
-        <details><summary>How do I become a teacher?</summary><p>Request a teacher account when you register. An administrator reviews the request before you can publish courses.</p></details>
+        <details><summary>How do I become a teacher?</summary><p>Select the teacher option when you register. Confirm your email to sign in and use your five-day trial.</p></details>
         <details><summary>Where do I see my progress?</summary><p>Open an enrolled course and mark lessons complete. Your course card updates as you go.</p></details>
       </div></section>
     </div>`;
@@ -106,14 +107,17 @@
         <p class="course-meta">${escape(course.teacher)} · ${escape(course.lessonCount)} ${Number(course.lessonCount) === 1 ? 'lesson' : 'lessons'}</p>
         ${course.description ? `<p class="course-description">${escape(course.description)}</p>` : ''}
         ${course.enrolled ? `<div class="progress-label"><span>Progress</span><strong>${progress}%</strong></div><progress max="100" value="${progress}" aria-label="Course completion"></progress>` : ''}
-        <a class="secondary module-link" data-link href="/modules/${encodeURIComponent(course.id)}">${course.enrolled ? 'Continue learning' : 'Open module'}</a>
+        ${Number(course.monthlyFee) > 0 ? `<p>${escape(feeLabel(course.monthlyFee))} per 30 days</p>` : ''}
+        <a class="secondary module-link" data-link href="/modules/${encodeURIComponent(course.id)}${course.billingLocked ? '#payments' : ''}">${course.billingLocked ? 'Pay course fee' : course.enrolled ? 'Continue learning' : 'Open module'}</a>
       </div></article>`;
   }
 
   function moduleFields(course = {}) {
     return `<label>Course title<input name="title" maxlength="160" value="${escape(course.title)}" required></label>
       <label>Subject<input name="subject" maxlength="100" value="${escape(course.subject)}"></label>
-      <label>Course description<textarea name="description" maxlength="2000">${escape(course.description)}</textarea></label>`;
+      <label>Course description<textarea name="description" maxlength="2000">${escape(course.description)}</textarea></label>
+      <label>Monthly course fee (LKR)<input name="monthlyFee" type="number" min="0" max="99999999.99" step=".01" value="${escape(course.monthlyFee ?? 0)}" required></label>
+      <p class="muted">Use 0 for a free module. Save your bank details under Payments before charging a fee.</p>`;
   }
 
   function examQuestion(index) {
@@ -230,14 +234,15 @@
       <p class="provider-status" role="status"></p><p data-live-download hidden></p></section>`;
   }
 
-  function uploadFile(url, file, type, progress) {
+  function uploadFile(url, file, type, progress, allowExisting = false) {
     return new Promise((resolve, reject) => {
       const request = new XMLHttpRequest();
       request.open('PUT', url);
       request.setRequestHeader('Content-Type', type);
       request.setRequestHeader('If-None-Match', '*');
       request.upload.onprogress = event => { if (event.lengthComputable) progress.value = Math.round(event.loaded * 100 / event.total); };
-      request.onload = () => request.status >= 200 && request.status < 300 ? resolve() : reject(new Error('Storage rejected the upload.'));
+      request.onload = () => ((request.status >= 200 && request.status < 300) || (allowExisting && request.status === 412))
+        ? resolve() : reject(new Error('Storage rejected the upload.'));
       request.onerror = () => reject(new Error('The upload connection was interrupted.'));
       request.send(file);
     });
@@ -569,6 +574,81 @@
     return true;
   }
 
+  const paymentStatuses = { uploading: 'Upload incomplete', pending: 'Awaiting review', approved: 'Approved', rejected: 'Rejected', revoked: 'Revoked' };
+  const feeLabel = amount => 'LKR ' + Number(amount).toLocaleString('en-LK', { maximumFractionDigits: 2 });
+  const paymentDate = timestamp => escape(new Intl.DateTimeFormat('en-LK', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Colombo',
+  }).format(new Date(timestamp)));
+
+  function scheduleBillingExpiry(until) {
+    const remaining = Date.parse(until) - Date.now();
+    if (!Number.isFinite(remaining) || remaining < 1) return;
+    billingTimer = window.setTimeout(async () => {
+      if (Date.parse(until) > Date.now()) return scheduleBillingExpiry(until);
+      stopClassRecording();
+      await liveRoom?.disconnect();
+      await render();
+    }, Math.min(remaining + 500, 2147483647));
+  }
+
+  function paymentPanel(state, courseId = '') {
+    const teacher = state.role === 'teacher';
+    const bank = teacher ? state.platformBank : state.bank;
+    const pending = state.history?.some(slip => slip.status === 'pending');
+    const history = state.history?.map(slip => `<li><div><strong>${escape(feeLabel(slip.amount))}</strong>
+      <small>${paymentDate(slip.created_at)}${slip.note ? ' · ' + escape(slip.note) : ''}</small></div>
+      <span class="role-pill">${paymentStatuses[slip.status]}</span></li>`).join('');
+    return `<section class="module-section panel payment-panel" id="payments" tabindex="-1">
+      <h2>${state.active ? teacher ? 'Teacher subscription' : 'Course payments' : teacher ? 'Renew your teacher access' : 'Pay your course fee'}</h2>
+      <div class="payment-total"><strong>${escape(feeLabel(state.amount))}</strong><span>per 30 days</span></div>
+      ${state.active && state.until ? `<p>Access ends on <strong>${paymentDate(state.until)} SL time</strong>.</p>`
+        : !state.active ? '<p>Access is locked until your payment slip is approved.</p>' : ''}
+      ${bank ? `<dl class="payment-bank"><div><dt>Account holder</dt><dd>${escape(bank.holder)}</dd></div>
+        <div><dt>Bank</dt><dd>${escape(bank.bank)}</dd></div><div><dt>Branch</dt><dd>${escape(bank.branch)}</dd></div>
+        <div><dt>Account number</dt><dd>${escape(bank.account)}</dd></div></dl>`
+        : '<p class="muted">Bank transfer details are unavailable.</p>'}
+      ${pending ? '<p class="role-pill">Your payment slip is awaiting review.</p>' : bank && state.storage ? `<form data-payment-upload data-course-id="${escape(courseId)}">
+        <label>Payment slip<input type="file" name="receipt" accept=".pdf,.png,.jpg,.jpeg,.webp" required></label>
+        <p class="muted">PDF, PNG, JPEG or WebP, up to 5 MiB.</p>
+        <button class="primary" type="submit">Submit payment slip</button>
+        <progress max="100" value="0" aria-label="Payment slip upload progress" hidden></progress><p role="status"></p></form>`
+        : bank ? '<p class="muted">Payment slip storage is unavailable right now.</p>' : ''}
+      ${history ? `<h3>Payment history</h3><ul class="records payment-records">${history}</ul>` : ''}
+    </section>`;
+  }
+
+  function paymentQueue(items, admin) {
+    return `<section class="dashboard-section panel payment-panel" ${admin ? 'id="payments"' : ''} tabindex="-1">
+      <h2>${admin ? 'Payment management' : 'Student payments'}</h2>
+      ${items.length ? items.map(item => `<details class="feedback-entry" id="slip-${escape(item.id)}">
+        <summary><strong>${escape(item.payer_name)} · ${escape(feeLabel(item.amount))}</strong><span class="role-pill">${paymentStatuses[item.status]}</span></summary>
+        <p class="muted">${escape(item.payer_email)} · ${escape(item.course_title || 'Teacher subscription')}</p>
+        <p>Submitted ${paymentDate(item.created_at)} SL time</p>
+        ${item.coverage_until ? `<p>Access period ends ${paymentDate(item.coverage_until)} SL time</p>` : ''}
+        ${item.note ? `<p>${escape(item.note)}</p>` : ''}
+        <button type="button" data-payment-open="${escape(item.id)}">Get slip download link</button><p role="status" data-slip-link></p>
+        ${item.status === 'pending' ? `<form data-submit="billing/review">
+          <input type="hidden" name="slipId" value="${escape(item.id)}">
+          <label>Review note (optional)<textarea name="note" rows="2" maxlength="500"></textarea></label>
+          <div class="actions"><button class="primary" type="submit" value="approve">Approve payment</button>
+            <button type="submit" value="reject">Reject slip</button></div><p class="error" role="status"></p>
+          </form>` : admin && item.status === 'approved' ? form('billing/revoke',
+          `<input type="hidden" name="slipId" value="${escape(item.id)}">`, 'Revoke current access',
+          'Revoke the access granted by this payment?') : ''}
+      </details>`).join('') : '<p class="muted">No payment slips to review.</p>'}
+    </section>`;
+  }
+
+  function teacherBankForm(bank = {}) {
+    return `<details class="dashboard-section panel" id="payment-bank"><summary>Your bank details for student payments</summary>
+      <p class="muted">These details are shown only to students enrolled in your paid modules.</p>
+      ${form('billing/save_bank', `<label>Account holder<input name="holder" maxlength="120" value="${escape(bank.holder)}" required></label>
+        <label>Bank<input name="bank" maxlength="100" value="${escape(bank.bank)}" required></label>
+        <label>Branch<input name="branch" maxlength="100" value="${escape(bank.branch)}" required></label>
+        <label>Account number<input name="account" inputmode="numeric" maxlength="40" value="${escape(bank.account)}" required></label>`, 'Save bank details')}
+    </details>`;
+  }
+
   function showUnread(count) {
     const badge = nav.querySelector('[data-notification-count]');
     if (!badge) return;
@@ -624,6 +704,7 @@
   }
 
   async function render() {
+    clearTimeout(billingTimer);
     const current = ++revision;
     const path = location.pathname;
     const dark = document.documentElement.classList.contains('dark');
@@ -649,7 +730,7 @@
             <button type="button" data-password-toggle aria-controls="auth-password">Show password</button>
           </div>
         </div>
-        ${register ? `<label class="checkbox"><input name="teacher" type="checkbox" ${new URLSearchParams(location.search).get('teacher') === '1' ? 'checked' : ''}> Request a teacher account</label>` : ''}`;
+        ${register ? `<label class="checkbox"><input name="teacher" type="checkbox" ${new URLSearchParams(location.search).get('teacher') === '1' ? 'checked' : ''}> I’m a teacher and want to register with SmartLearningSpace</label>` : ''}`;
       main.innerHTML = `<section class="auth-layout enter">
         <div class="auth panel"><p class="eyebrow">SMARTLEARNINGSPACE</p><h1>${register ? 'Create an account' : 'Sign in'}</h1>
           <p class="muted">${register ? 'Join your learning workspace or request teacher access.' : 'Access your courses and pick up where you left off.'}</p>
@@ -676,6 +757,20 @@
     }
     main.innerHTML = '<p class="loading" role="status">Loading your workspace…</p>';
     try {
+      const billing = user.role === 'student' ? null : await api('billing');
+      if (current !== revision) return;
+      if (user.role === 'teacher' && !billing.active) {
+        const communications = await api('communications/inbox').catch(() => ({ unread: 0, notifications: [] }));
+        if (current !== revision) return;
+        showUnread(communications.unread);
+        main.innerHTML = `<div class="module-page billing-locked"><h1>Teaching studio</h1>
+          ${paymentPanel(billing)}<div class="payment-lock-preview" aria-hidden="true"></div>
+          <section id="notifications" class="dashboard-section panel" tabindex="-1"><h2>Notifications</h2>
+            <p role="status" data-notification-status></p><div data-notification-items>${notificationItems(communications)}</div></section></div>`;
+        focusLinkedSection();
+        return;
+      }
+      if (user.role === 'teacher') scheduleBillingExpiry(billing.until);
       const [summary, catalog, accounts, available, communications] = await Promise.all([api('dashboard'), api('courses'),
         user.role === 'admin' ? api('users') : null, api('capabilities').catch(() => ({})),
         api('communications').catch(error => ({ error: error.message, unread: 0, notifications: [], feedback: [] }))]);
@@ -694,6 +789,7 @@
             ${accounts ? '<button type="button" data-jump="users">User management</button>' : ''}
             <button type="button" data-jump="courses">${courseHeading}</button>
             ${role === 'teacher' ? '<button type="button" data-jump="create">Create module</button>' : ''}
+            ${billing && !billing.disabled ? '<button type="button" data-jump="payments">Payments</button>' : ''}
             <button type="button" data-jump="feedback">${role === 'admin' ? 'Feedback management' : 'Send feedback'}</button>
           </nav>
         </aside>
@@ -710,6 +806,8 @@
             <div data-notification-items>${communications.error ? `<p class="error">${escape(communications.error)}</p>` : ''}${notificationItems(communications)}</div>
           </section>
           ${accounts ? adminAccounts(accounts) : ''}
+          ${billing && !billing.disabled ? role === 'admin' ? paymentQueue(billing.queue, true)
+            : paymentPanel(billing) + teacherBankForm(billing.bank || {}) + paymentQueue(billing.queue, false) : ''}
           <section id="courses" class="dashboard-section" tabindex="-1">
             <header class="section-head"><h2>${courseHeading}</h2></header>
             ${role === 'teacher' ? `<details id="create" class="panel course-create" tabindex="-1"><summary>Create module</summary>
@@ -755,6 +853,17 @@
       const admin = user.role === 'admin';
       const manage = user.role === 'teacher' && course.status !== 'suspended';
       const invite = new URLSearchParams(location.search).get('live');
+      const paidCourse = user.role === 'student' && course.enrolled && Number(course.monthlyFee) > 0;
+      const billing = paidCourse || manage ? await api(paidCourse ? 'billing?course=' + encodeURIComponent(id) : 'billing') : null;
+      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
+      if (billing?.active) scheduleBillingExpiry(billing.until);
+      if (course.billingLocked || (paidCourse && !billing.active)) {
+        detail.innerHTML = `<article class="panel course-detail billing-locked"><header class="module-heading">
+          <p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2></header>
+          ${paymentPanel(billing, id)}<div class="payment-lock-preview" aria-hidden="true"></div></article>`;
+        if (!focusLinkedSection()) detail.focus();
+        return;
+      }
       const services = (manage || course.enrolled) && (capabilities.materials || capabilities.live)
         ? await api(route + '/services').catch(() => null) : null;
       if (current !== revision || request !== courseRevision || !detail.isConnected) return;
@@ -766,12 +875,14 @@
       const assets = admin ? page.assets || [] : services?.assets || [];
       const archived = course.status === 'suspended';
       detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading"><p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2><p>${escape(course.teacher)} · ${escape(course.lessonCount)} lessons</p>
+        ${Number(course.monthlyFee) > 0 ? `<p>${escape(feeLabel(course.monthlyFee))} per 30 days</p>` : ''}
         ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</header>
         ${manage && course.status === 'draft' ? form(`${route}/publish`, '', 'Publish course') : ''}
         ${manage ? `<details class="panel"><summary>Edit module details</summary>${form(`${route}/edit`, moduleFields(course), 'Save module')}</details>` : ''}
         ${admin ? form(route + (archived ? '/restore' : '/archive'), '', archived ? 'Restore module' : 'Archive module',
           archived ? '' : 'Archive this module and remove it from student access?') : ''}
         ${outlineOnly && !invite ? form(`${route}/enroll`, '', 'Enroll in module') : ''}
+        ${paidCourse ? paymentPanel(billing, id) : ''}
         ${moduleLive(services, route, manage && course.status !== 'draft', invite, course.enrolled)}
         <section class="module-section lecture-series" aria-labelledby="lecture-heading">
           <h2 id="lecture-heading">Lectures</h2>
@@ -804,12 +915,14 @@
       if (invite && classroom) classroom.focus();
       else if (!focusLinkedSection()) detail.focus();
     } catch (error) {
+      if (current === revision && request === courseRevision && error.status === 402 && user.role === 'teacher')
+        return go(dashboard() + '#payments', true);
       if (current === revision && request === courseRevision) detail.textContent = error.message;
     }
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control],[data-notification-refresh]');
+    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control],[data-notification-refresh],[data-payment-open]');
     if (!control) return;
     if (control.hasAttribute('data-link')) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -817,6 +930,19 @@
       if (control.dataset.noticeId && !classRecorder)
         await api('communications/read', { notificationId: control.dataset.noticeId }).catch(() => {});
       go(control.getAttribute('href'));
+    } else if (control.hasAttribute('data-payment-open')) {
+      const status = control.closest('details').querySelector('[data-slip-link]');
+      control.disabled = true;
+      try {
+        const { url } = await api('billing/open', { slipId: control.dataset.paymentOpen });
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Download payment slip';
+        status.replaceChildren(link);
+      } catch (error) { status.textContent = error.message; }
+      finally { control.disabled = false; }
     } else if (control.hasAttribute('data-notification-refresh')) {
       await refreshNotices(true);
       document.querySelector('[data-notification-refresh]')?.focus();
@@ -930,6 +1056,32 @@
 
   document.addEventListener('submit', async event => {
     const element = event.target;
+    if (element.hasAttribute('data-payment-upload')) {
+      event.preventDefault();
+      const button = element.querySelector('[type=submit]');
+      const status = element.querySelector('[role=status]');
+      const file = element.elements.receipt.files[0];
+      const progress = element.querySelector('progress');
+      if (!file) return;
+      if (!['application/pdf','image/png','image/jpeg','image/webp'].includes(file.type) || file.size < 1 || file.size > 5242880) {
+        status.textContent = 'Choose a PDF, PNG, JPEG or WebP slip of up to 5 MiB.';
+        return;
+      }
+      button.disabled = true;
+      try {
+        status.textContent = 'Uploading your slip…';
+        const { id, uploadUrl } = await api('billing/reserve', {
+          courseId: element.dataset.courseId || undefined, mime: file.type, size: file.size,
+        });
+        progress.hidden = false;
+        await uploadFile(uploadUrl, file, file.type, progress, true);
+        await api('billing/submit', { slipId: id });
+        await render();
+        document.getElementById('payments')?.focus();
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; }
+      return;
+    }
     if (element.hasAttribute('data-upload-material') || element.hasAttribute('data-live-start')) {
       event.preventDefault();
       const panel = element.closest('.provider-panel');
@@ -993,12 +1145,12 @@
     if (!element.dataset.submit) return;
     event.preventDefault();
     if (element.dataset.confirm && !window.confirm(element.dataset.confirm)) return;
-    const button = element.querySelector('button[type="submit"]');
+    const button = event.submitter || element.querySelector('button[type="submit"]');
     const status = element.querySelector('[role=status]');
     button.disabled = true;
     status.textContent = '';
     const values = Object.fromEntries(new FormData(element));
-    const action = element.dataset.submit;
+    const action = element.dataset.submit === 'billing/review' ? 'billing/' + (button.value === 'reject' ? 'reject' : 'approve') : element.dataset.submit;
     if (action.endsWith('/exam_create')) {
       values.questions = Array.from(element.querySelectorAll('[data-question]'), field => ({
         prompt: field.querySelector('[name="prompt"]').value,
@@ -1031,6 +1183,14 @@
         status.textContent = result.checkEmail
           ? 'Check your email to confirm your account. Teacher accounts also require administrator approval.'
           : result.pending ? 'Your application is awaiting administrator approval.' : 'Account created. You can sign in.';
+      } else if (action.startsWith('billing/')) {
+        await render();
+        document.getElementById(action === 'billing/save_bank' ? 'payment-bank' : 'payments')?.focus();
+        const slip = values.slipId && document.getElementById('slip-' + values.slipId);
+        if (slip) {
+          slip.open = true;
+          slip.querySelector('summary')?.focus();
+        }
       } else if (action === 'communications/read_all') {
         await refreshNotices(true);
         document.getElementById('notifications')?.focus();

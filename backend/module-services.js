@@ -52,7 +52,7 @@ function moduleServices({ providers, rpc, serviceRpc, confirmAsset }) {
     if (['start_live','join_live','end_live'].includes(action)) {
       requireFeature('live');
       if (action === 'start_live') await invoke('start_live', { title: required(body.title, 'Class title', 160) });
-      const grant = await invoke('join_live');
+      const grant = await invoke(action === 'end_live' ? 'end_live_access' : 'join_live');
       if (body.sessionId !== undefined && verifyId(body.sessionId) !== grant.session)
         fail(404, 'This live class has ended or the invite is no longer valid.');
       if (action === 'end_live') {

@@ -134,6 +134,8 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
         sessions.delete(token);
         return send(200, { ok: true });
       }
+      if (req.method === 'GET' && route === '/api/billing')
+        return send(200, { disabled: true, active: true });
       const next = req.method === 'GET' ? data : structuredClone(data);
       const { status, value, changed } = workspace(next, publicUser(account), req.method, route, body);
       if (changed) {
@@ -157,7 +159,8 @@ if (require.main === module) {
   const providers = require('./providers').createProviders(process.env);
   const cloudApi = process.env.SUPABASE_URL || production
     ? require('./supabase-api').createSupabaseApi({ url: process.env.SUPABASE_URL, key: process.env.SUPABASE_PUBLISHABLE_KEY,
-      serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY, providers })
+      serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY, providers,
+      platformBank: require('./billing').paymentBank(process.env) })
     : undefined;
   const port = Number(process.env.PORT || process.env.SMARTLEARNING_API_PORT || 8787);
   const adminPassword = process.env.SMARTLEARNING_ADMIN_PASSWORD;

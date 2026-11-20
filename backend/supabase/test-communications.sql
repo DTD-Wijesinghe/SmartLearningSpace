@@ -6,6 +6,7 @@ insert into auth.users(id,email,raw_user_meta_data) values
  ('bf2f73c1-441a-4df3-afc1-7037a8190072','notices-teacher@example.test','{"name":"Teacher","teacher":true}'),
  ('bf2f73c1-441a-4df3-afc1-7037a8190073','notices-student@example.test','{"name":"Student"}'),
  ('bf2f73c1-441a-4df3-afc1-7037a8190074','notices-peer@example.test','{"name":"Peer"}');
+update sls.profiles set pending = true where email = 'notices-teacher@example.test';
 update sls.profiles set pending = false where email = 'notices-teacher@example.test';
 
 set local role authenticated;

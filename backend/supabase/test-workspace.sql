@@ -6,6 +6,7 @@ insert into auth.users(id,email,raw_user_meta_data) values
   ('b1078ff5-c2ad-4213-930b-46fd00a10002','teacher-fixture@example.test','{"name":"QA Teacher","teacher":true}'),
   ('b1078ff5-c2ad-4213-930b-46fd00a10003','student-fixture@example.test','{"name":"QA Student","role":"admin"}');
 update sls.profiles set role = 'admin' where email = 'admin-fixture@example.test';
+update sls.profiles set pending = true where email = 'teacher-fixture@example.test';
 set local role authenticated;
 do $$
 declare
