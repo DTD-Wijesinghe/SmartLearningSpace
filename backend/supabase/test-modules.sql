@@ -12,6 +12,7 @@ declare
   student_id text := 'b1078ff5-c2ad-4213-930b-46fd00a20002';
   course_ref jsonb;
   exam_ref jsonb;
+  lesson_ref jsonb;
   module jsonb;
 begin
   perform set_config('request.jwt.claim.sub',owner_id,true);
@@ -27,12 +28,21 @@ begin
   assert module->'course'->>'description' = 'Module overview';
   assert module->'lessons'->0->>'description' = 'Overview';
   exam_ref := course_ref || jsonb_build_object('examId',module->'exams'->0->>'id');
+  lesson_ref := course_ref || jsonb_build_object('lessonId',module->'lessons'->0->>'id');
+  assert module->'exams'->0->'questions'->0->>'correct' = '0';
+  perform public.sls_workspace('lesson_edit',lesson_ref || '{"title":"Introduction revised","description":"New overview","text":"Updated notes"}');
+  perform public.sls_workspace('exam_edit',exam_ref || '{"title":"Check-in updated","questions":[{"prompt":"Choose the first answer","options":["A","B"],"correct":0}]}');
 
   perform set_config('request.jwt.claim.sub','b1078ff5-c2ad-4213-930b-46fd00a20003',true);
   begin
     perform public.sls_workspace('edit',course_ref || '{"title":"Forbidden"}');
     raise exception 'Other teacher edited a module';
   exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.sls_workspace('lesson_edit',lesson_ref || '{"title":"Forbidden"}');
+    raise exception 'Other teacher edited a lecture';
+  exception when sqlstate 'PT404' then null;
   end;
   perform set_config('request.jwt.claim.sub',student_id,true);
   assert public.sls_workspace('course',course_ref)->'exams' = '[]';
@@ -44,6 +54,14 @@ begin
   perform public.sls_workspace('enroll',course_ref || '{"enrollmentCode":"FixtureCode-26"}');
   module := public.sls_workspace('course',course_ref);
   assert not ((module->'exams'->0->'questions'->0) ? 'correct');
+  assert module->'lessons'->0->>'text' = 'Updated notes';
+  assert module->'exams'->0->>'title' = 'Check-in updated';
+  begin
+    perform public.sls_workspace('exam_submit',exam_ref || '{"answers":[0]}');
+    raise exception 'Stale version accepted';
+  exception when sqlstate 'PT409' then null;
+  end;
+  exam_ref := exam_ref || jsonb_build_object('examVersion',module->'exams'->0->>'version');
   perform public.sls_workspace('exam_submit',exam_ref || '{"answers":[0]}');
   assert public.sls_workspace('course',course_ref)->'exams'->0->'result' = 'null';
   begin
@@ -62,6 +80,12 @@ begin
   assert module->'exams'->0->'submissions'->0->'answers' = '[0]';
   assert module->'exams'->0->'submissions'->0->>'score' = '1';
   assert module->'learnerProgress'->0->>'completed' = '1';
+  begin
+    perform public.sls_workspace('exam_edit',exam_ref || '{"title":"New title","questions":[{"prompt":"Changed again","options":["A","B"],"correct":1}]}');
+    raise exception 'Submitted exam changed its answer key';
+  exception when sqlstate 'PT409' then null;
+  end;
+  perform public.sls_workspace('exam_edit',exam_ref || '{"title":"Renamed after submission"}');
   perform public.sls_workspace('exam_release',exam_ref || jsonb_build_object('studentId',student_id,'score',1,'feedback','Well done'));
   perform set_config('request.jwt.claim.sub',student_id,true);
   assert public.sls_workspace('course',course_ref)->'exams'->0->'result'->>'feedback' = 'Well done';

@@ -21,6 +21,8 @@ begin
   assert public.sls_billing('read')->>'active' = 'true';
   perform public.sls_billing('save_bank','{"holder":"Owner","bank":"Fixture bank","branch":"Main","account":"0000012345"}');
   module := jsonb_build_object('courseId',public.sls_workspace('create','{"enrollmentCode":"FixtureCode-26","title":"Paid module","monthlyFee":1200}')->'course'->>'id');
+  perform public.sls_workspace('edit',module || '{"title":"Paid module","monthlyFee":1400}');
+  assert public.sls_workspace('course',module)->'course'->>'monthlyFee' = '1400.00';
   perform public.sls_workspace('lessons',module || '{"title":"Private lecture","text":"Private lesson notes"}');
   perform set_config('request.jwt.claim.sub',learner,true);
   begin
@@ -38,7 +40,7 @@ begin
   exception when sqlstate 'PT402' then null;
   end;
   slip := public.sls_billing('reserve',module || '{"mime":"application/pdf","size":150}');
-  assert slip->>'amount' = '1200.00';
+  assert slip->>'amount' = '1400.00';
   insert into billing_test values('module',module),('student-slip',slip);
   perform set_config('request.jwt.claim.sub',teacher,true);
   slip := public.sls_billing('reserve','{"mime":"image/png","size":100}');

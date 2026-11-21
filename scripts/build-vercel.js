@@ -20,12 +20,13 @@ writeFileSync(join(output, 'config.json'), JSON.stringify({
   routes: [
     { src: '^/api/(.*)$', dest: backend.origin + '/api/$1' },
     {
-      src: '^/(|index\\.html|login|register|(?:admin|teacher|student)/dashboard|modules/[a-zA-Z0-9_-]+)$',
+      src: '^/(|index\\.html|login|register|forgot-password|reset-password|(?:admin|teacher|student)/dashboard|modules/[a-zA-Z0-9_-]+)$',
       dest: '/index.html',
       headers: {
         'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
         'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+        'Content-Security-Policy': "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'",
       },
     },
     { handle: 'filesystem' },

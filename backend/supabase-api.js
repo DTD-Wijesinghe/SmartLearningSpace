@@ -1,6 +1,10 @@
 const { fail, required } = require('./workspace');
+const { createHash, randomBytes } = require('node:crypto');
 const { moduleServices } = require('./module-services');
 const { billing } = require('./billing');
+
+const recoveryCookie = (value, lifetime) =>
+  `__Host-sls-recovery=${value}; Path=/; Max-Age=${lifetime}; Secure; HttpOnly; SameSite=Lax`;
 
 function createSupabaseApi({ url, key, serviceKey, providers = {}, platformBank }) {
   if (!url || !key || new URL(url).protocol !== 'https:') {
@@ -53,6 +57,39 @@ function createSupabaseApi({ url, key, serviceKey, providers = {}, platformBank 
   return async function dispatch(req, route, body) {
     const token = /^Bearer (\S{1,8192})$/.exec(req.headers.authorization || '')?.[1];
     const post = req.method === 'POST';
+    if (post && ['/api/password/recover', '/api/password/reset'].includes(route)) {
+      if (route.endsWith('/recover')) {
+        const email = required(body.email, 'Email', 254).toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Enter a valid email address.');
+        const verifier = randomBytes(32).toString('base64url');
+        const challenge = createHash('sha256').update(verifier).digest('base64url');
+        // Auth may stop before contacting the mail provider for a nonexistent address.
+        // Keep the public response generic even when the provider declines a delivery.
+        await call('/auth/v1/recover', { body: { email, code_challenge: challenge, code_challenge_method: 's256' } }).catch(() => {});
+        return { status: 200, value: { accepted: true }, headers: { 'Set-Cookie': recoveryCookie(verifier, 3600) } };
+      }
+      const password = body.password;
+      if (typeof password !== 'string' || password.length < 12 || password.length > 128)
+        fail(400, 'Use a password of 12–128 characters.');
+      const verifier = /(?:^|;\s*)__Host-sls-recovery=([A-Za-z0-9_-]{43})(?:;|$)/.exec(req.headers.cookie || '')?.[1];
+      const code = typeof body.code === 'string' ? body.code : '';
+      if (!verifier || !/^[A-Za-z0-9_-]{20,128}$/.test(code))
+        fail(400, 'Open a fresh reset link in the browser where you requested it.');
+      let session;
+      try {
+        session = await call('/auth/v1/token?grant_type=pkce', { body: { auth_code: code, code_verifier: verifier } });
+      } catch (error) {
+        if (error.status >= 500 || error.status === 429) throw error;
+        fail(400, 'This reset link is invalid or expired. Request a new link and try again.');
+      }
+      if (!session.access_token) fail(503, 'Password recovery could not be completed. Request a new link.');
+      try {
+        await call('/auth/v1/user', { method: 'PUT', token: session.access_token, body: { password } });
+      } finally {
+        await call('/auth/v1/logout?scope=local', { method: 'POST', token: session.access_token }).catch(() => {});
+      }
+      return { status: 200, value: { updated: true }, headers: { 'Set-Cookie': recoveryCookie('', 0) } };
+    }
     if (post && ['/api/login', '/api/register'].includes(route)) {
       const email = required(body.email, 'Email', 254).toLowerCase();
       const password = typeof body.password === 'string' ? body.password : '';
@@ -112,7 +149,7 @@ function createSupabaseApi({ url, key, serviceKey, providers = {}, platformBank 
       if (action === 'create') required(body.title, 'Title');
       return { status: action === 'create' ? 201 : 200, value: await rpc(token, action, post ? body : {}) };
     }
-    const course = /^\/api\/courses\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})(?:\/(enroll|publish|lessons|progress|edit|suspend|exam_create|exam_submit|exam_release))?$/.exec(route);
+    const course = /^\/api\/courses\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})(?:\/(enroll|publish|lessons|lesson_edit|asset_edit|progress|edit|suspend|exam_create|exam_edit|exam_submit|exam_release))?$/.exec(route);
     if (course && ((req.method === 'GET' && !course[2]) || (post && course[2]))) {
       return { status: 200, value: await rpc(token, course[2] || 'course', { ...body, courseId: course[1] }) };
     }

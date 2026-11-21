@@ -64,23 +64,24 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
   return http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     const liveOrigin = providers.live?.origin;
     const liveCloud = liveOrigin && new URL(liveOrigin).hostname.endsWith('.livekit.cloud');
     const connect = [providers.r2?.origin, liveOrigin, liveOrigin?.replace(/^wss:/, 'https:'),
       ...(liveCloud ? ['wss://*.livekit.cloud', 'https://*.livekit.cloud'] : [])].filter(Boolean).join(' ');
     res.setHeader('Content-Security-Policy', [
-      "default-src 'self'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'self'",
+      "default-src 'self'", "base-uri 'none'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'",
       `connect-src 'self' ${connect}`, `media-src 'self' blob: ${providers.r2?.origin || ''}`,
     ].join('; '));
     const route = new URL(req.url, 'http://localhost').pathname;
-    const send = (status, value) => {
-      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    const send = (status, value, headers) => {
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
       res.end(JSON.stringify(value));
     };
     try {
       if (!route.startsWith('/api/')) {
         const asset = route.slice(1);
-        const page = route === '/' || /^\/(login|register|(?:admin|teacher|student)\/dashboard|modules\/[\w-]+)$/.test(route);
+        const page = route === '/' || /^\/(login|register|forgot-password|reset-password|(?:admin|teacher|student)\/dashboard|modules\/[\w-]+)$/.test(route);
         const liveScript = asset === 'vendor/livekit.js';
         if (req.method !== 'GET' || (!page && !assets.has(asset) && !liveScript)) return send(404, { error: 'Not found.' });
         const relative = page ? 'index.html' : liveScript ? livekitScript : asset;
@@ -89,11 +90,15 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
         return res.end(fs.readFileSync(path.join(root, relative)));
       }
       if (req.method === 'GET' && route === '/api/health') return send(200, { ok: true, mode: cloudApi ? 'supabase' : 'local' });
+      if (req.method === 'POST' && req.headers['sec-fetch-site'] === 'cross-site')
+        return send(403, { error: 'Open SmartLearningSpace directly to submit this request.' });
       const body = await readBody(req);
       if (cloudApi) {
         const result = await cloudApi(req, route, body);
-        return send(result.status, result.value);
+        return send(result.status, result.value, result.headers);
       }
+      if (route === '/api/password/recover' || route === '/api/password/reset')
+        return send(503, { error: 'Email recovery is available when the workspace is connected to Supabase.' });
       if (req.method === 'POST' && ['/api/login', '/api/register'].includes(route)) {
         const now = Date.now();
         for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);

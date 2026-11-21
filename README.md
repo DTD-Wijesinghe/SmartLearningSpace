@@ -33,4 +33,6 @@ Payment slips use the existing private R2 bucket and Supabase service-role confi
 
 Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` on the API. Register and confirm the first administrator's account through Supabase Auth, verify its Auth UUID, then change that exact profile's role to `admin` from the Supabase SQL editor. Keep email confirmation enabled and configure the public website URL in Supabase Auth before inviting users. Existing local demo data stays in the local store.
 
+In Supabase Auth, configure custom SMTP for delivery to teachers and students. Keep `{{ .ConfirmationURL }}` in the **Reset password** template and set the Site URL to the HTTPS origin that serves the recovery form. Users must open the emailed link in the same browser and on the same site that requested it so the app can verify the browser-bound recovery code.
+
 The Render Blueprint declares a free Node web service. On a Vercel project eligible for Hobby, use the Other framework preset and `npm run build`. Set `RENDER_API_ORIGIN` to the Render HTTPS origin at build time. The generated Build Output API configuration proxies `/api/*` and maps supported page routes to the frontend. R2 and other media providers require separate configuration.

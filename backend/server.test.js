@@ -2,9 +2,50 @@
   const { test } = require('node:test');
   const assert = require('node:assert/strict');
   const fs = require('node:fs');
+  const { createHash } = require('node:crypto');
   const os = require('node:os');
   const path = require('node:path');
   const { createServer } = require('./server');
+  const { createSupabaseApi } = require('./supabase-api');
+
+  test('Supabase recovery binds the emailed link to the same browser before changing the password', async t => {
+    const calls = [];
+    let validCode = false;
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+      const body = options.body && JSON.parse(options.body);
+      calls.push([url.pathname, options.method, body, options.headers.Authorization]);
+      if (url.pathname.endsWith('/recover')) return Response.json({ error: 'Address not eligible' }, { status: 400 });
+      if (url.pathname.endsWith('/token')) return validCode
+        ? Response.json({ access_token: 'fixture-recovery-token' })
+        : Response.json({ error: 'Code expired' }, { status: 403 });
+      return Response.json({});
+    });
+    const dispatch = createSupabaseApi({ url: 'https://fixture.example.test', key: 'sb_publishable_fixture' });
+    const req = { method: 'POST', headers: {} };
+    const email = 'teacher@example.test';
+    const password = 'new-fixture-password-203';
+    const request = await dispatch(req, '/api/password/recover', { email });
+    assert.deepEqual(request.value, { accepted: true });
+    const cookie = request.headers['Set-Cookie'];
+    assert.match(cookie, /Secure; HttpOnly; SameSite=Lax/);
+    const verifier = /^__Host-sls-recovery=([A-Za-z0-9_-]+);/.exec(cookie)[1];
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    assert.deepEqual(calls[0][2], { email, code_challenge: challenge, code_challenge_method: 's256' });
+    const code = 'd5e2c2e0-6301-4314-8545-b667593a8ade';
+    await assert.rejects(dispatch(req, '/api/password/reset', { password, code }), { status: 400 });
+    req.headers.cookie = `__Host-sls-recovery=${verifier}`;
+    await assert.rejects(dispatch(req, '/api/password/reset', { password, code }), { status: 400 });
+    assert.equal(calls.length, 2);
+    validCode = true;
+    const reset = await dispatch(req, '/api/password/reset', { password, code });
+    assert.deepEqual(reset.value, { updated: true });
+    assert.match(reset.headers['Set-Cookie'], /Max-Age=0/);
+    assert.deepEqual(calls.slice(2), [
+      ['/auth/v1/token', 'POST', { auth_code: code, code_verifier: verifier }, undefined],
+      ['/auth/v1/user', 'PUT', { password }, 'Bearer fixture-recovery-token'],
+      ['/auth/v1/logout', 'POST', undefined, 'Bearer fixture-recovery-token'],
+    ]);
+  });
 
   test('approved teacher creates a visible module with lectures, progress, and private conversations', async t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sls-test-'));
@@ -30,15 +71,18 @@
       return result;
     }
     const login = (email, status = 200) => request('login', status, { email, password });
-    const pageRoutes = ['/', '/index.html', '/login', '/register', '/teacher/dashboard', '/student/dashboard', '/admin/dashboard', '/modules/sample'];
+    const pageRoutes = ['/', '/index.html', '/login', '/register', '/forgot-password', '/reset-password', '/teacher/dashboard', '/student/dashboard', '/admin/dashboard', '/modules/sample'];
     for (const route of pageRoutes) {
       const page = await fetch(base + route);
       assert.equal(page.status, 200, route);
       assert.equal(page.headers.get('cache-control'), 'no-store', route);
+      assert.equal(page.headers.get('referrer-policy'), 'no-referrer', route);
       assert.match(await page.text(), /class="site-footer"[\s\S]+Futora Labs/, route);
     }
     assert.equal((await fetch(base + '/backend/data.json')).status, 404);
     await request('courses', 401);
+    const crossSite = await fetch(base + '/api/password/recover', { method: 'POST', headers: { 'Sec-Fetch-Site': 'cross-site' } });
+    assert.equal(crossSite.status, 403);
     const teacher = 'test-teacher@example.test';
     const student = 'test-student@example.test';
     const other = 'other-teacher@example.test';
@@ -76,6 +120,11 @@
     await request(route + '/enroll', 200, {}, studentToken);
     const { lessons } = await request(route, 200, undefined, studentToken);
     assert.equal(lessons[0].text, 'Course material');
+    const lectureEdit = { lessonId: lessons[0].id, title: 'Welcome revised', text: 'Updated course material' };
+    await request(route + '/lesson_edit', 403, lectureEdit, studentToken);
+    await request(route + '/lesson_edit', 404, lectureEdit, otherToken);
+    await request(route + '/lesson_edit', 200, lectureEdit, teacherToken);
+    assert.equal((await request(route, 200, undefined, studentToken)).lessons[0].text, lectureEdit.text);
     await request(route + '/progress', 200, { lessonId: lessons[0].id }, studentToken);
     await request(route + '/progress', 200, { lessonId: lessons[1].id }, studentToken);
     assert.equal((await request(route, 200, undefined, studentToken)).course.progress, 100);

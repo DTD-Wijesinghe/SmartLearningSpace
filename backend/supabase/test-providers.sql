@@ -23,6 +23,8 @@ begin
   assert not has_function_privilege(current_user,'public.sls_confirm_material(uuid,text,bigint)','EXECUTE');
   perform set_config('request.jwt.claim.sub',teacher,true);
   media := public.sls_module_services('reserve_asset', module || '{"lessonId":"bf2f73c1-441a-4df3-afc1-7037a8190014","name":"QA.pdf","mime":"application/pdf","size":2048}');
+  perform public.sls_workspace('asset_edit',module || jsonb_build_object('assetId',media->>'id','name','Lecture guide.pdf'));
+  assert public.sls_module_services('list',module)->'assets'->0->>'name' = 'Lecture guide.pdf';
   insert into provider_test_ids values((media->>'id')::uuid);
   live := public.sls_module_services('start_live',module || '{"title":"Private class"}');
   assert public.sls_module_services('join_live',module)->>'host' = 'true';

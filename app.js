@@ -14,6 +14,9 @@
   let classRecorder;
   let savedRecording;
   let billingTimer;
+  const callbackCode = ['/', '/reset-password'].includes(location.pathname) ? new URLSearchParams(location.search).get('code') : '';
+  let recoveryCode = /^[A-Za-z0-9_-]{20,128}$/.test(callbackCode || '') ? callbackCode : '';
+  if (recoveryCode) history.replaceState(null, '', '/reset-password');
   let workspaceReads;
   let workspaceRefreshing = false;
   let mutationVersion = 0;
@@ -161,7 +164,7 @@
       <label>Subject<input name="subject" maxlength="100" value="${escape(course.subject)}"></label>
       <label>Course description<textarea name="description" maxlength="2000">${escape(course.description)}</textarea></label>
       <label>Monthly course fee (LKR)<input name="monthlyFee" type="number" min="0" max="99999999.99" step=".01" value="${escape(course.monthlyFee ?? 0)}" required></label>
-      <p class="muted">Use 0 for a free module. Save your bank details under Payments before charging a fee.</p>
+      <p class="muted">Use 0 for a free module. Save your bank details under Payments before charging a fee.${course.id ? ' Changes apply to future payment slips.' : ''}</p>
       <label>${codeRequired ? 'Enrollment code' : 'New enrollment code (optional)'}
         <input name="enrollmentCode" minlength="12" maxlength="48" pattern="[A-Za-z0-9_\\-]{12,48}" autocomplete="off" spellcheck="false" ${codeRequired ? 'required' : ''}>
       </label>
@@ -169,33 +172,49 @@
       <div><button class="secondary" type="button" data-generate-enrollment-code>Generate a code</button></div>`;
   }
 
-  function examQuestion(index) {
+  function lectureFields(lesson = {}) {
+    return `<label>Lecture title<input name="title" maxlength="160" value="${escape(lesson.title)}" required></label>
+      <label>Short description<input name="description" maxlength="1000" value="${escape(lesson.description)}"></label>
+      <label>Lecture notes<textarea name="text" maxlength="12000" rows="5">${escape(lesson.text)}</textarea></label>`;
+  }
+
+  function examQuestion(index, question = {}) {
+    const options = question.options || ['', '', '', ''];
     return `<fieldset class="exam-question" data-question><legend>Question ${index + 1}</legend>
-      <label>Question text<input name="prompt" maxlength="500" required></label>
-      ${Array.from({ length: 4 }, (_, option) => `<label>Choice ${option + 1}<input name="option" maxlength="200" required></label>`).join('')}
-      <label>Correct choice<select name="correct">${[1, 2, 3, 4].map((value, i) => `<option value="${i}">Choice ${value}</option>`).join('')}</select></label></fieldset>`;
+      <label>Question text<input name="prompt" maxlength="500" value="${escape(question.prompt)}" required></label>
+      ${options.map((option, i) => `<label>Choice ${i + 1}<input name="option" maxlength="200" value="${escape(option)}" required></label>`).join('')}
+      <label>Correct choice<select name="correct">${options.map((_, i) => `<option value="${i}"${i === question.correct ? ' selected' : ''}>Choice ${i + 1}</option>`).join('')}</select></label>
+      <button class="secondary" type="button" data-remove-question>Remove question</button></fieldset>`;
+  }
+
+  function examFields(exam) {
+    const questions = exam?.questions || [{}];
+    return `<label>Exam title<input name="title" maxlength="160" value="${escape(exam?.title)}" required></label>
+      ${exam?.submissions.length ? '<p class="muted">Students have submitted this exam. You can rename it. Its questions and answer key are locked.</p>' :
+      `<div data-question-list>${questions.map((question, index) => examQuestion(index, question)).join('')}</div>
+        ${questions.length === 25 ? '<button type="button" data-add-question disabled>Add question</button>' : '<button type="button" data-add-question>Add question</button>'}`}`;
   }
 
   function examsView(exams, route, manage, enrolled) {
     if (!manage && !enrolled) return '';
     const list = exams.map(exam => `<details class="panel exam"><summary>${escape(exam.title)} · ${exam.questions.length} questions</summary>
-      ${manage ? exam.submissions.map(submission => `<article class="submission"><h3>${escape(submission.name)}</h3>
+      ${manage ? `<details class="exam-edit"><summary>Edit exam</summary>${form(route + '/exam_edit',
+        `<input type="hidden" name="examId" value="${escape(exam.id)}">${examFields(exam)}`, 'Save exam')}</details>` + (exam.submissions.map(submission => `<article class="submission"><h3>${escape(submission.name)}</h3>
         <ol>${exam.questions.map((q, i) => `<li><strong>${escape(q.prompt)}</strong><p>${escape(q.options[submission.answers[i]])}</p></li>`).join('')}</ol>
         ${submission.released ? `<p class="completed">Released · ${submission.score}/${submission.total}</p>` : form(route + '/exam_release',
           `<input type="hidden" name="examId" value="${escape(exam.id)}"><input type="hidden" name="studentId" value="${escape(submission.student)}">
           <label>Score out of ${submission.total}<input name="score" type="number" min="0" max="${submission.total}" value="${submission.score}" required></label>
           <label>Feedback<textarea name="feedback" maxlength="2000"></textarea></label>
           ${capabilities.ai ? `<button type="button" data-provider-action="${route}/ai_feedback">Draft feedback with AI</button><p class="provider-status" role="status"></p>` : ''}`, 'Release result')}
-      </article>`).join('') || '<p>No submissions yet.</p>' : exam.result
+      </article>`).join('') || '<p>No submissions yet.</p>') : exam.result
       ? `<p class="completed">Result · ${exam.result.score}/${exam.result.total}</p><p>${escape(exam.result.feedback)}</p>`
       : exam.submitted ? '<p>Submitted. Your result will appear here when the teacher releases it.</p>'
-      : form(route + '/exam_submit', `<input type="hidden" name="examId" value="${escape(exam.id)}">` +
+      : form(route + '/exam_submit', `<input type="hidden" name="examId" value="${escape(exam.id)}"><input type="hidden" name="examVersion" value="${escape(exam.version)}">` +
         exam.questions.map((q, i) => `<fieldset class="exam-question"><legend>${i + 1}. ${escape(q.prompt)}</legend>
           ${q.options.map((option, j) => `<label class="checkbox"><input type="radio" name="answer-${i}" value="${j}" required>${escape(option)}</label>`).join('')}</fieldset>`).join(''), 'Submit answers')}
       </details>`).join('');
-    return `<section class="module-section"><h2>Exams and results</h2>${manage ? `<details class="panel exam"><summary>Create MCQ exam</summary>
-        ${form(route + '/exam_create', `<label>Exam title<input name="title" maxlength="160" required></label>
-          <div data-question-list>${examQuestion(0)}</div><button type="button" data-add-question>Add question</button>`, 'Publish exam')}</details>` : ''}
+    return `<section class="module-section" id="module-exams" tabindex="-1"><h2>Exams and results</h2>${manage ? `<details class="panel exam"><summary>Create MCQ exam</summary>
+        ${form(route + '/exam_create', examFields(), 'Publish exam')}</details>` : ''}
       ${list || '<p class="muted">No exams have been published for this module.</p>'}</section>`;
   }
 
@@ -227,7 +246,9 @@
           const moderation = admin ? form(route + '/material_moderation',
             `<input type="hidden" name="assetId" value="${escape(asset.id)}"><input type="hidden" name="archived" value="${!asset.archived_at}">`,
             asset.archived_at ? 'Restore file' : 'Remove file', asset.archived_at ? '' : 'Remove this file from the lecture?') : '';
-          return `<li><div><strong>${escape(asset.name)}</strong>${status ? `<small>${status}</small>` : ''}</div>
+          const rename = manage && !asset.archived_at ? `<details><summary>Rename</summary>${form(`${route}/asset_edit`,
+            `<input type="hidden" name="assetId" value="${escape(asset.id)}"><label>Display name<input name="name" maxlength="160" value="${escape(asset.name)}" required></label>`, 'Save name')}</details>` : '';
+          return `<li><div><strong>${escape(asset.name)}</strong>${status ? `<small>${status}</small>` : ''}${rename}</div>
             <div class="record-right">${preview}${moderation}</div></li>`;
         }).join('');
         const label = video ? 'Add video' : 'Add document';
@@ -814,6 +835,26 @@
       if (user) void refreshNotices();
       return;
     }
+    if (path === '/forgot-password' || path === '/reset-password') {
+      const verify = path === '/reset-password';
+      const fields = verify ? `
+        <div class="password-field"><label for="recovery-password">New password</label><div class="password-row">
+          <input id="recovery-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+          <button type="button" data-password-toggle aria-controls="recovery-password">Show password</button></div></div>
+        <label>Confirm new password<input name="confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+        <p class="muted">Use at least 12 characters.</p>` :
+        '<label>Account email<input name="email" type="email" autocomplete="username" maxlength="254" required></label>';
+      main.innerHTML = `<section class="auth-layout enter">
+        <div class="auth panel"><p class="eyebrow">Account recovery</p><h1>${verify ? 'Choose a new password' : 'Forgot your password?'}</h1>
+          <p class="muted">${verify ? 'Set a new password after opening the verification link from your email.' : 'Enter your account email. If it is eligible, you’ll receive a reset link. Open the link in this same browser.'}</p>
+          ${verify && !recoveryCode ? '<p>Open the link from your email first, or request a new link.</p>' :
+            form(verify ? 'password/reset' : 'password/recover', fields, verify ? 'Reset password' : 'Send reset link')}
+          <div class="auth-links"><a href="/login" data-link>Back to sign in</a>
+            ${verify ? '<a href="/forgot-password" data-link>Request a new link</a>' : ''}</div></div>
+        <figure class="auth-art"><img src="/assets/learning-studio.webp" alt="" width="1440" height="960"><figcaption>Return to your workspace</figcaption></figure>
+      </section>`;
+      return;
+    }
     if (path === '/login' || path === '/register') {
       if (user) return go(dashboard(), true);
       const register = path === '/register';
@@ -830,8 +871,9 @@
       main.innerHTML = `<section class="auth-layout enter">
         <div class="auth panel"><p class="eyebrow">SMARTLEARNINGSPACE</p><h1>${register ? 'Create an account' : 'Sign in'}</h1>
           <p class="muted">${register ? 'Join your learning workspace or request teacher access.' : 'Access your courses and pick up where you left off.'}</p>
+          ${!register && new URLSearchParams(location.search).get('password') === 'updated' ? '<p class="auth-success" role="status">Password updated. Sign in with your new password.</p>' : ''}
           ${form(register ? 'register' : 'login', fields, register ? 'Register' : 'Sign in')}
-          <div class="auth-links">${register ? '<a href="/login" data-link>Already registered? Sign in</a>' : '<a href="/register" data-link>Create an account</a>'}</div>
+          <div class="auth-links">${register ? '<a href="/login" data-link>Already registered? Sign in</a>' : '<a href="/forgot-password" data-link>Forgot password?</a><a href="/register" data-link>Create an account</a>'}</div>
         </div>
         <figure class="auth-art"><img src="/assets/teaching-studio.webp" alt="An educator preparing a lesson at her desk" width="1200" height="800">
           <figcaption>Your Space for<br>Smarter Learning.</figcaption></figure>
@@ -886,6 +928,7 @@
             <button type="button" data-jump="courses">${courseHeading}</button>
             ${role === 'teacher' ? '<button type="button" data-jump="create">Create module</button>' : ''}
             ${billing && !billing.disabled ? '<button type="button" data-jump="payments">Payments</button>' : ''}
+            <button type="button" data-jump="notifications">Notifications</button>
             <button type="button" data-jump="feedback">${role === 'admin' ? 'Feedback management' : 'Send feedback'}</button>
           </nav>
         </aside>
@@ -947,10 +990,11 @@
       if (!ready()) return false;
       if (user.role === 'student' && !course.enrolled) {
         clearTimeout(billingTimer);
-        detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading">
+        detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading module-hero"><div>
           <p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2>
           <p>${escape(course.teacher)}${Number(course.monthlyFee) > 0 ? ` · ${escape(feeLabel(course.monthlyFee))} per 30 days` : ''}</p>
-          ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</header>
+          ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</div>
+          <img src="/assets/learning-studio.webp" alt="" width="288" height="140"></header>
           <section class="module-section" aria-labelledby="enrollment-title"><h2 id="enrollment-title">Join this module</h2>
           <p class="muted">Enter the enrollment code your teacher shared to unlock the module.</p>
           ${form(`${route}/enroll`, '<label>Enrollment code<input name="enrollmentCode" maxlength="48" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>', 'Enroll in module')}
@@ -987,25 +1031,33 @@
         (order.get(a.id) ?? outline.length) - (order.get(b.id) ?? outline.length));
       const assets = admin ? page.assets || [] : services?.assets || [];
       const archived = course.status === 'suspended';
-      detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading"><p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2><p>${escape(course.teacher)} · ${escape(course.lessonCount)} lessons</p>
+      detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading module-hero"><div><p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2><p>${escape(course.teacher)} · ${escape(course.lessonCount)} ${Number(course.lessonCount) === 1 ? 'lecture' : 'lectures'}</p>
         ${Number(course.monthlyFee) > 0 ? `<p>${escape(feeLabel(course.monthlyFee))} per 30 days</p>` : ''}
-        ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</header>
+        ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</div>
+        <img src="/assets/${manage ? 'teaching' : 'learning'}-studio.webp" alt="" width="288" height="140"></header>
+        <nav class="module-shortcuts" aria-label="Module sections">
+          ${manage ? '<button type="button" data-jump="module-settings">Module settings</button>' : ''}
+          <button type="button" data-jump="module-lectures">Lectures</button>
+          ${Array.isArray(exams) && (manage || course.enrolled) ? '<button type="button" data-jump="module-exams">Exams and results</button>' : ''}
+          ${paidCourse ? '<button type="button" data-jump="payments">Payments</button>' : ''}
+        </nav>
         ${manage && course.status === 'draft' ? form(`${route}/publish`, '', 'Publish course') : ''}
-        ${manage ? `<details class="panel"><summary>Edit module details and enrollment code</summary>${form(`${route}/edit`, moduleFields(course), 'Save module')}</details>
+        ${manage ? `<details class="panel" id="module-settings"><summary>Edit module details, fee and enrollment code</summary>${form(`${route}/edit`, moduleFields(course), 'Save changes')}</details>
           ${course.enrollmentCodeSet ? '' : '<p class="muted">Set an enrollment code to allow new students to join this module.</p>'}` : ''}
         ${admin ? form(route + (archived ? '/restore' : '/archive'), '', archived ? 'Restore module' : 'Archive module',
           archived ? '' : 'Archive this module and remove it from student access?') : ''}
         ${paidCourse ? paymentPanel(billing, id) : ''}
         ${moduleLive(services, route, manage && course.status !== 'draft', invite, course.enrolled)}
-        <section class="module-section lecture-series" aria-labelledby="lecture-heading">
+        <section class="module-section lecture-series" id="module-lectures" tabindex="-1" aria-labelledby="lecture-heading">
           <h2 id="lecture-heading">Lectures</h2>
-          ${manage ? `<details class="panel"><summary>Add lecture</summary>${form(`${route}/lessons`,
-            '<label>Lecture title<input name="title" maxlength="160" required></label><label>Description<input name="description" maxlength="1000"></label><label>Lecture notes<textarea name="text" maxlength="12000"></textarea></label>',
+          ${manage ? `<details class="panel"><summary>Add lecture</summary>${form(`${route}/lessons`, lectureFields(),
             'Save lecture')}</details>` : ''}
           ${lectures.length ? `<ol class="lecture-list">${lectures.map((lesson, index) => `<li class="lecture-card" id="lecture-${escape(lesson.id)}" tabindex="-1">
             <p class="eyebrow">Lecture ${index + 1}</p><h3>${escape(lesson.title)}</h3>
             ${lesson.description ? `<p class="muted">${escape(lesson.description)}</p>` : ''}
             ${lesson.text ? `<p class="lecture-notes">${escape(lesson.text)}</p>` : ''}
+            ${manage ? `<details class="lecture-edit"><summary>Edit lecture</summary>${form(`${route}/lesson_edit`,
+              `<input type="hidden" name="lessonId" value="${escape(lesson.id)}">${lectureFields(lesson)}`, 'Save lecture changes')}</details>` : ''}
             ${admin || manage || course.enrolled ? lessonMaterials(assets.filter(asset => asset.lesson === lesson.id),
               route, lesson, manage, admin, services?.enabled.materials) : ''}
             ${course.enrolled ? completed.includes(lesson.id) ? '<p class="completed">✓ Completed</p>' :
@@ -1037,7 +1089,7 @@
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control],[data-notification-refresh],[data-payment-open],[data-generate-enrollment-code]');
+    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-remove-question],[data-provider-action],[data-live-control],[data-notification-refresh],[data-payment-open],[data-generate-enrollment-code]');
     if (!control) return;
     if (control.hasAttribute('data-link')) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -1145,6 +1197,16 @@
       } finally {
         control.disabled = false;
       }
+    } else if (control.hasAttribute('data-remove-question')) {
+      const editor = control.form;
+      const questions = editor.querySelectorAll('[data-question]');
+      if (questions.length === 1) return;
+      control.closest('[data-question]').remove();
+      editor.querySelectorAll('[data-question] legend').forEach((legend, index) => { legend.textContent = `Question ${index + 1}`; });
+      const add = editor.querySelector('[data-add-question]');
+      add.disabled = false;
+      add.focus();
+      editor.dataset.unsaved = '';
     } else if (control.hasAttribute('data-add-question')) {
       const list = control.form.querySelector('[data-question-list]');
       const count = list.children.length;
@@ -1278,7 +1340,7 @@
     status.textContent = '';
     const values = Object.fromEntries(new FormData(element));
     const action = element.dataset.submit === 'billing/review' ? 'billing/' + (button.value === 'reject' ? 'reject' : 'approve') : element.dataset.submit;
-    if (action.endsWith('/exam_create')) {
+    if (/\/exam_(create|edit)$/.test(action) && element.querySelector('[data-question-list]')) {
       values.questions = Array.from(element.querySelectorAll('[data-question]'), field => ({
         prompt: field.querySelector('[name="prompt"]').value,
         options: Array.from(field.querySelectorAll('[name="option"]'), input => input.value),
@@ -1294,8 +1356,20 @@
     if ('archived' in values) values.archived = values.archived === 'true';
     if ('closed' in values) values.closed = values.closed === 'true';
     try {
+      if (action === 'password/reset') {
+        if (values.password !== values.confirmation) throw new Error('The passwords do not match.');
+        delete values.confirmation;
+        values.code = recoveryCode;
+      }
       const result = await api(action, values);
-      if (action === 'login') {
+      if (action === 'password/recover') {
+        element.reset();
+        status.textContent = 'If the account is eligible, a reset link will arrive by email. If it doesn’t arrive, check spam or contact your administrator.';
+      } else if (action === 'password/reset') {
+        recoveryCode = '';
+        clearSession();
+        go('/login?password=updated', true);
+      } else if (action === 'login') {
         ({ token, user } = result);
         sessionStorage.setItem('sls-session', token);
         const params = new URLSearchParams(location.search);
@@ -1344,6 +1418,13 @@
               thread.open = true;
               thread.querySelector('summary')?.focus();
             }
+          } else if (action.endsWith('/edit')) {
+            const settings = document.getElementById('module-settings');
+            if (settings) {
+              settings.open = true;
+              settings.querySelector('[role=status]').textContent = 'Module changes saved.';
+              settings.querySelector('summary')?.focus();
+            }
           } else if (action.endsWith('/lessons')) {
             document.querySelector('.lecture-card:last-child')?.focus();
           } else if (lectureId) document.getElementById(lectureId)?.focus();
@@ -1351,6 +1432,13 @@
       }
     } catch (error) {
       status.textContent = error.message;
+      if (error.status === 409 && /\/exam_(edit|submit)$/.test(action)) {
+        const reload = document.createElement('button');
+        reload.type = 'button';
+        reload.textContent = 'Reload exam';
+        reload.dataset.retry = '';
+        status.append(' ', reload);
+      }
     } finally {
       button.disabled = false;
     }
