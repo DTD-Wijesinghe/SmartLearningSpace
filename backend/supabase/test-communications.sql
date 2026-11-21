@@ -32,7 +32,8 @@ begin
   perform set_config('request.jwt.claim.sub',admin,true);
   item := public.sls_communications('list');
   assert item->'feedback'->0->>'subject' = 'Playback';
-  assert (item->>'unread')::integer = 2;
+  assert (item->>'unread')::integer = 3;
+  assert item->'notifications' @> '[{"title":"Module created: Notices QA"}]'::jsonb;
   select jsonb_build_object('notificationId',n->>'id') into notice
     from jsonb_array_elements(item->'notifications') n where n->>'title' = 'New platform feedback: Playback';
   assert notice is not null;
@@ -47,6 +48,11 @@ begin
   begin
     perform public.sls_communications('review',review || '{"status":"resolved"}');
     raise exception 'Student updated platform feedback';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.sls_communications('announce','{"audience":"both","title":"Fake","message":"Unapproved"}');
+    raise exception 'Student sent a system announcement';
   exception when insufficient_privilege then null;
   end;
   perform set_config('request.jwt.claim.sub',admin,true);
@@ -64,5 +70,16 @@ begin
   assert (public.sls_communications('inbox')->>'unread')::integer = 0;
   perform set_config('request.jwt.claim.sub',peer,true);
   assert (public.sls_communications('inbox')->>'unread')::integer = 0;
+  perform set_config('request.jwt.claim.sub',admin,true);
+  assert public.sls_communications('announce','{"audience":"teacher","title":"Teaching update","message":"A teacher-only system update."}')->>'delivered' = '1';
+  assert public.sls_communications('announce','{"audience":"student","title":"Learning update","message":"A student-only system update."}')->>'delivered' = '2';
+  perform set_config('request.jwt.claim.sub',teacher,true);
+  item := public.sls_communications('inbox');
+  assert item->'notifications' @> '[{"title":"Teaching update","message":"A teacher-only system update."}]'::jsonb;
+  assert not (item->'notifications' @> '[{"title":"Learning update"}]'::jsonb);
+  perform set_config('request.jwt.claim.sub',learner,true);
+  item := public.sls_communications('inbox');
+  assert item->'notifications' @> '[{"title":"Learning update"}]'::jsonb;
+  assert not (item->'notifications' @> '[{"title":"Teaching update"}]'::jsonb);
 end $$;
 rollback;

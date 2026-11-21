@@ -74,7 +74,7 @@ function createSupabaseApi({ url, key, serviceKey, providers = {}, platformBank 
       const payload = payment[1] ? body : { courseId: params.get('course') || undefined };
       return { status: 200, value: await payments(token, payment[1] || 'read', payload) };
     }
-    const communication = /^\/api\/communications(?:\/(inbox|submit|review|read|read_all))?$/.exec(route);
+    const communication = /^\/api\/communications(?:\/(inbox|submit|review|read|read_all|announce))?$/.exec(route);
     if (communication && (!communication[1] || communication[1] === 'inbox' ? req.method === 'GET' : post)) {
       const value = await call('/rest/v1/rpc/sls_communications', {
         token, body: { action: communication[1] || 'list', payload: body },

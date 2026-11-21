@@ -14,6 +14,9 @@
   let classRecorder;
   let savedRecording;
   let billingTimer;
+  let workspaceReads;
+  let workspaceRefreshing = false;
+  let mutationVersion = 0;
   const liveId = value => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(value || '');
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -26,6 +29,7 @@
   };
 
   async function api(path, data) {
+    if (data !== undefined) mutationVersion++;
     const response = await fetch(`/api/${path}`, {
       method: data === undefined ? 'GET' : 'POST',
       headers: { ...(token && { Authorization: `Bearer ${token}` }),
@@ -35,6 +39,46 @@
     const result = await response.json();
     if (!response.ok) throw Object.assign(new Error(result.error), { status: response.status });
     return result;
+  }
+
+  async function workspaceRead(path) {
+    try {
+      return { value: await api(path) };
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  function refreshPaused() {
+    return document.hidden || classRecorder || liveRoom ||
+      main.querySelector('form[data-unsaved], form [type="submit"]:disabled, [data-provider-action]:disabled, [data-payment-open]:disabled') ||
+      [...main.querySelectorAll('[data-material-view] video')].some(video => !video.paused);
+  }
+
+  // Refresh the requests used by this screen. Reuse their results if the view changes.
+  async function refreshWorkspace() {
+    if (!user || document.hidden || workspaceRefreshing) return;
+    if (!workspaceReads?.size || refreshPaused()) {
+      await refreshNotices();
+      return;
+    }
+    const current = revision;
+    const writes = mutationVersion;
+    const previous = workspaceReads;
+    workspaceRefreshing = true;
+    try {
+      const fresh = new Map(await Promise.all([...previous.keys()].map(async path => [path, await workspaceRead(path)])));
+      if (current !== revision || writes !== mutationVersion || refreshPaused()) return;
+      if ([...fresh.values()].some(result => result.error && (!result.error.status || result.error.status >= 500))) return;
+      const changed = [...fresh].some(([path, result]) => {
+        const before = previous.get(path);
+        return before.error?.status !== result.error?.status || JSON.stringify(before.value) !== JSON.stringify(result.value);
+      });
+      if (changed) await render(fresh);
+      if (location.pathname.startsWith('/modules/')) await refreshNotices();
+    } finally {
+      workspaceRefreshing = false;
+    }
   }
 
   function go(path, replace = false) {
@@ -563,9 +607,20 @@
       ${unread ? form('communications/read_all', '', 'Mark all as read') : ''}</div>
       ${notifications.length ? `<ul class="records notification-list">${notifications.map(notice =>
         `<li><div><a data-link data-notice-id="${notice.read_at ? '' : escape(notice.id)}" href="${escape(notice.destination)}">${escape(notice.title)}</a>
+          ${notice.message ? `<p class="notification-message">${escape(notice.message)}</p>` : ''}
           <small>${escape(new Date(notice.created_at).toLocaleString())}</small></div>
           ${notice.read_at ? '' : '<span class="role-pill">Unread</span>'}</li>`).join('')}</ul>`
         : '<p class="muted">You have no notifications.</p>'}`;
+  }
+
+  function announcementsForm() {
+    return `<details class="panel"><summary>Send a system announcement</summary>
+      ${form('communications/announce', `<label>Audience<select name="audience" required>
+        <option value="">Choose recipients</option><option value="teacher">Teachers</option>
+        <option value="student">Students</option><option value="both">Teachers and students</option>
+      </select></label><label>Title<input name="title" maxlength="120" required></label>
+      <label>Message<textarea name="message" rows="3" maxlength="1000" required></textarea></label>`,
+      'Send announcement', 'Send this announcement to the selected audience?')}</details>`;
   }
 
   function focusLinkedSection() {
@@ -586,6 +641,7 @@
   }).format(new Date(timestamp)));
 
   function scheduleBillingExpiry(until) {
+    clearTimeout(billingTimer);
     const remaining = Date.parse(until) - Date.now();
     if (!Number.isFinite(remaining) || remaining < 1) return;
     billingTimer = window.setTimeout(async () => {
@@ -671,7 +727,7 @@
       const inbox = document.querySelector('[data-notification-items]');
       if (inbox && (force || !inbox.contains(document.activeElement))) inbox.innerHTML = notificationItems(items);
     } catch (error) {
-      if (force) {
+      if (force && session === token) {
         const status = document.querySelector('[data-notification-status]');
         if (status) status.textContent = error.message;
       }
@@ -708,12 +764,47 @@
     </section>`;
   }
 
-  async function render() {
-    clearTimeout(billingTimer);
+  async function render(fresh) {
+    const scroll = fresh && window.scrollY;
+    const disclosureKey = details => details.id || details.querySelector('summary')?.textContent;
+    const open = fresh && new Set([...main.querySelectorAll('details[open]')].map(disclosureKey));
+    const search = fresh && main.querySelector('[data-course-search]')?.value;
+    const filter = fresh && main.querySelector('[data-course-filter]')?.value;
+    const previous = workspaceReads;
+    const writes = mutationVersion;
+    const reads = new Map();
+    const load = async path => {
+      const result = fresh?.get(path) ?? await workspaceRead(path);
+      reads.set(path, result);
+      if (result.error) throw result.error;
+      return result.value;
+    };
+    workspaceReads = null;
+    const expected = revision + 1;
+    const applied = await renderPage(load, Boolean(fresh), () => writes === mutationVersion && !refreshPaused());
+    if (expected !== revision) return;
+    if (applied === false) {
+      workspaceReads = previous;
+      return;
+    }
+    workspaceReads = reads;
+    if (!fresh) return;
+    for (const details of main.querySelectorAll('details')) details.open = open.has(disclosureKey(details));
+    const searchField = main.querySelector('[data-course-search]');
+    const filterField = main.querySelector('[data-course-filter]');
+    if (searchField && search !== undefined) searchField.value = search;
+    if (filterField && filter !== undefined) filterField.value = filter;
+    if (searchField) filterCourses();
+    window.scrollTo({ top: scroll, behavior: 'instant' });
+  }
+
+  async function renderPage(load, background, canUpdate) {
+    if (!background) clearTimeout(billingTimer);
     const current = ++revision;
+    const ready = () => current === revision && (!background || canUpdate());
     const path = location.pathname;
     const dark = document.documentElement.classList.contains('dark');
-    nav.innerHTML = `<button class="theme-toggle" data-theme aria-label="Toggle color theme" aria-pressed="${dark}" title="Toggle color theme">${dark ? '☀' : '☾'}</button>` + (user
+    if (!background) nav.innerHTML = `<button class="theme-toggle" data-theme aria-label="Toggle color theme" aria-pressed="${dark}" title="Toggle color theme">${dark ? '☀' : '☾'}</button>` + (user
       ? `<a class="nav-link" href="${dashboard()}" data-link>Dashboard</a>
         <a class="nav-link notification-link" href="${dashboard()}#notifications" data-link>Notifications <span class="role-pill" data-notification-count hidden></span></a>
         <button class="secondary sign-out" data-logout>Sign out</button>`
@@ -753,33 +844,33 @@
       (liveId(invite) ? '&live=' + encodeURIComponent(invite) : '') : '/login', true);
     if (!moduleId && path !== dashboard()) return go(dashboard(), true);
     if (moduleId) {
-      main.innerHTML = `<div class="module-page"><a href="${dashboard()}" data-link>← Back to dashboard</a>
+      if (!background) main.innerHTML = `<div class="module-page"><a href="${dashboard()}" data-link>← Back to dashboard</a>
         <section id="course-detail" tabindex="-1" aria-label="Module details"></section>
         <p><a href="${dashboard()}#feedback" data-link>${user.role === 'admin' ? 'Feedback management' : 'Send feedback to system admin'}</a></p></div>`;
-      void refreshNotices();
-      await openCourse(moduleId);
-      return;
+      if (!background) void refreshNotices();
+      return openCourse(moduleId, load, background, ready);
     }
-    main.innerHTML = '<p class="loading" role="status">Loading your workspace…</p>';
+    if (!background) main.innerHTML = '<p class="loading" role="status">Loading your workspace…</p>';
     try {
-      const billing = user.role === 'student' ? null : await api('billing');
-      if (current !== revision) return;
+      const billing = user.role === 'student' ? null : await load('billing');
+      if (!ready()) return false;
       if (user.role === 'teacher' && !billing.active) {
-        const communications = await api('communications/inbox').catch(() => ({ unread: 0, notifications: [] }));
-        if (current !== revision) return;
+        const communications = await load('communications/inbox').catch(() => ({ unread: 0, notifications: [] }));
+        if (!ready()) return false;
+        clearTimeout(billingTimer);
         showUnread(communications.unread);
         main.innerHTML = `<div class="module-page billing-locked"><h1>Teaching studio</h1>
           ${paymentPanel(billing)}<div class="payment-lock-preview" aria-hidden="true"></div>
           <section id="notifications" class="dashboard-section panel" tabindex="-1"><h2>Notifications</h2>
             <p role="status" data-notification-status></p><div data-notification-items>${notificationItems(communications)}</div></section></div>`;
-        focusLinkedSection();
+        if (!background) focusLinkedSection();
         return;
       }
+      const [summary, catalog, accounts, available, communications] = await Promise.all([load('dashboard'), load('courses'),
+        user.role === 'admin' ? load('users') : null, load('capabilities').catch(() => ({})),
+        load('communications').catch(error => ({ error: error.message, unread: 0, notifications: [], feedback: [] }))]);
+      if (!ready()) return false;
       if (user.role === 'teacher') scheduleBillingExpiry(billing.until);
-      const [summary, catalog, accounts, available, communications] = await Promise.all([api('dashboard'), api('courses'),
-        user.role === 'admin' ? api('users') : null, api('capabilities').catch(() => ({})),
-        api('communications').catch(error => ({ error: error.message, unread: 0, notifications: [], feedback: [] }))]);
-      if (current !== revision) return;
       capabilities = available;
       showUnread(communications.unread);
       const cards = catalog.courses.map(courseCard).join('');
@@ -807,7 +898,8 @@
           <div class="stat-grid">${Object.entries(summary.stats).map(([key, value]) =>
             `<article><span>${escape(key)}</span><strong>${escape(value)}</strong></article>`).join('')}</div>
           <section id="notifications" class="dashboard-section panel" tabindex="-1">
-            <h2>Notifications</h2><p role="status" data-notification-status></p>
+            <h2>${role === 'admin' ? 'System notifications' : 'Notifications'}</h2><p role="status" data-notification-status></p>
+            ${role === 'admin' ? announcementsForm() : ''}
             <div data-notification-items>${communications.error ? `<p class="error">${escape(communications.error)}</p>` : ''}${notificationItems(communications)}</div>
           </section>
           ${accounts ? adminAccounts(accounts) : ''}
@@ -827,9 +919,10 @@
           ${feedbackPanel(communications.feedback, role === 'admin')}
         </div>
       </section>`;
-      focusLinkedSection();
+      if (!background) focusLinkedSection();
     } catch (error) {
-      if (current === revision) showError(error);
+      if (!ready()) return false;
+      showError(error);
     }
   }
 
@@ -841,17 +934,19 @@
     main.innerHTML = `<p class="error" role="status">${escape(error.message)}</p><button data-retry>Try again</button>`;
   }
 
-  async function openCourse(id) {
+  async function openCourse(id, load, background, canUpdate) {
     const current = revision;
     const request = ++courseRevision;
     const detail = document.querySelector('#course-detail');
     if (!detail) return;
-    detail.innerHTML = '<p class="loading" role="status">Loading course…</p>';
+    const ready = () => canUpdate() && request === courseRevision && detail.isConnected;
+    if (!background) detail.innerHTML = '<p class="loading" role="status">Loading course…</p>';
     try {
       const route = `courses/${id}`;
-      const { course, lessons, students, completed, exams, history = [], learnerProgress = [] } = await api(route);
-      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
+      const { course, lessons, students, completed, exams, history = [], learnerProgress = [] } = await load(route);
+      if (!ready()) return false;
       if (user.role === 'student' && !course.enrolled) {
+        clearTimeout(billingTimer);
         detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading">
           <p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2>
           <p>${escape(course.teacher)}${Number(course.monthlyFee) > 0 ? ` · ${escape(feeLabel(course.monthlyFee))} per 30 days` : ''}</p>
@@ -860,31 +955,32 @@
           <p class="muted">Enter the enrollment code your teacher shared to unlock the module.</p>
           ${form(`${route}/enroll`, '<label>Enrollment code<input name="enrollmentCode" maxlength="48" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>', 'Enroll in module')}
           </section></article>`;
-        detail.focus();
+        if (!background) detail.focus();
         return;
       }
       const [page, available] = await Promise.all([
-        api(route + '/module_page').catch(error => ({ error: error.message })), api('capabilities').catch(() => ({})),
+        load(route + '/module_page').catch(error => ({ error: error.message })), load('capabilities').catch(() => ({})),
       ]);
-      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
+      if (!ready()) return false;
       capabilities = available;
       const admin = user.role === 'admin';
       const manage = user.role === 'teacher' && course.status !== 'suspended';
       const invite = new URLSearchParams(location.search).get('live');
       const paidCourse = user.role === 'student' && course.enrolled && Number(course.monthlyFee) > 0;
-      const billing = paidCourse || manage ? await api(paidCourse ? 'billing?course=' + encodeURIComponent(id) : 'billing') : null;
-      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
-      if (billing?.active) scheduleBillingExpiry(billing.until);
+      const billing = paidCourse || manage ? await load(paidCourse ? 'billing?course=' + encodeURIComponent(id) : 'billing') : null;
+      if (!ready()) return false;
       if (course.billingLocked || (paidCourse && !billing.active)) {
+        clearTimeout(billingTimer);
         detail.innerHTML = `<article class="panel course-detail billing-locked"><header class="module-heading">
           <p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2></header>
           ${paymentPanel(billing, id)}<div class="payment-lock-preview" aria-hidden="true"></div></article>`;
-        if (!focusLinkedSection()) detail.focus();
+        if (!background && !focusLinkedSection()) detail.focus();
         return;
       }
       const services = (manage || course.enrolled) && (capabilities.materials || capabilities.live)
-        ? await api(route + '/services').catch(() => null) : null;
-      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
+        ? await load(route + '/services').catch(() => null) : null;
+      if (!ready()) return false;
+      scheduleBillingExpiry(billing?.active ? billing.until : null);
       const outline = page.outline || [];
       const order = new Map(outline.map((lecture, i) => [lecture.id, i]));
       const lectures = [...lessons].sort((a, b) =>
@@ -928,9 +1024,12 @@
       if (roomPanel && livePanel?.dataset.liveModule === route) roomPanel.replaceWith(livePanel);
       const classroom = detail.querySelector('[data-live-module]');
       if (classroom) showRecording(classroom);
-      if (invite && classroom) classroom.focus();
-      else if (!focusLinkedSection()) detail.focus();
+      if (!background) {
+        if (invite && classroom) classroom.focus();
+        else if (!focusLinkedSection()) detail.focus();
+      }
     } catch (error) {
+      if (!ready()) return false;
       if (current === revision && request === courseRevision && error.status === 402 && user.role === 'teacher')
         return go(dashboard() + '#payments', true);
       if (current === revision && request === courseRevision) detail.textContent = error.message;
@@ -949,6 +1048,7 @@
     } else if (control.hasAttribute('data-generate-enrollment-code')) {
       const field = control.form.elements.enrollmentCode;
       field.value = crypto.randomUUID();
+      control.form.dataset.unsaved = '';
       field.select();
     } else if (control.hasAttribute('data-payment-open')) {
       const status = control.closest('details').querySelector('[data-slip-link]');
@@ -1029,7 +1129,10 @@
           await connectClass(result, panel);
         } else if (result.answer) {
           status.textContent = result.answer;
-          if (action.endsWith('/ai_feedback') && !panel.elements.feedback.value.trim()) panel.elements.feedback.value = result.answer.slice(0, 2000);
+          if (action.endsWith('/ai_feedback') && !panel.elements.feedback.value.trim()) {
+            panel.elements.feedback.value = result.answer.slice(0, 2000);
+            panel.dataset.unsaved = '';
+          }
         } else {
           if (action.endsWith('/end_live')) {
             stopClassRecording();
@@ -1047,6 +1150,7 @@
       const count = list.children.length;
       if (count < 25) {
         list.insertAdjacentHTML('beforeend', examQuestion(count));
+        control.form.dataset.unsaved = '';
         list.lastElementChild.querySelector('input').focus();
       }
       if (count >= 24) control.disabled = true;
@@ -1069,10 +1173,13 @@
   }
   main.addEventListener('input', event => {
     if (event.target.matches('[data-course-search]')) filterCourses();
+    if (event.target.form) event.target.form.dataset.unsaved = '';
   });
   main.addEventListener('change', event => {
     if (event.target.matches('[data-course-filter]')) filterCourses();
+    if (event.target.form) event.target.form.dataset.unsaved = '';
   });
+  main.addEventListener('reset', event => { delete event.target.dataset.unsaved; });
 
   document.addEventListener('submit', async event => {
     const element = event.target;
@@ -1211,6 +1318,9 @@
           slip.open = true;
           slip.querySelector('summary')?.focus();
         }
+      } else if (action === 'communications/announce') {
+        element.reset();
+        status.textContent = result.delivered === 1 ? 'Sent to 1 account.' : `Sent to ${result.delivered} accounts.`;
       } else if (action === 'communications/read_all') {
         await refreshNotices(true);
         document.getElementById('notifications')?.focus();
@@ -1258,7 +1368,8 @@
     event.preventDefault();
     event.returnValue = '';
   });
-  window.setInterval(refreshNotices, 60000);
+  window.setInterval(refreshWorkspace, 20000);
+  document.addEventListener('visibilitychange', refreshWorkspace);
   document.documentElement.classList.toggle('dark', localStorage.getItem('sls-theme') === 'dark');
   void (async () => {
     if (token) {

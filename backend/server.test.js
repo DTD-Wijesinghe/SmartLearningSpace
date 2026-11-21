@@ -30,7 +30,13 @@
       return result;
     }
     const login = (email, status = 200) => request('login', status, { email, password });
-    assert.equal((await fetch(base + '/teacher/dashboard')).status, 200);
+    const pageRoutes = ['/', '/index.html', '/login', '/register', '/teacher/dashboard', '/student/dashboard', '/admin/dashboard', '/modules/sample'];
+    for (const route of pageRoutes) {
+      const page = await fetch(base + route);
+      assert.equal(page.status, 200, route);
+      assert.equal(page.headers.get('cache-control'), 'no-store', route);
+      assert.match(await page.text(), /class="site-footer"[\s\S]+Futora Labs/, route);
+    }
     assert.equal((await fetch(base + '/backend/data.json')).status, 404);
     await request('courses', 401);
     const teacher = 'test-teacher@example.test';
@@ -56,6 +62,7 @@
     const { course } = await request('courses', 201, { title: 'Test Course', enrollmentCode }, teacherToken);
     const route = 'courses/' + course.id;
     assert.equal((await request(route, 200, undefined, studentToken)).course.status, 'published');
+    assert.deepEqual((await request('courses', 200, undefined, otherToken)).courses, []);
     await request(route, 404, undefined, otherToken);
     await request(route + '/lessons', 200, { title: 'Welcome', text: 'Course material' }, teacherToken);
     await request(route + '/lessons', 200, { title: 'Practice' }, teacherToken);
@@ -125,5 +132,19 @@
     assert.ok(studentInbox.notifications.some(item => item.title === 'Feedback updated: Video playback'));
     await request('communications/read_all', 200, {}, activeToken);
     assert.equal((await request('communications/inbox', 200, undefined, activeToken)).unread, 0);
+    const announcement = { audience: 'teacher', title: 'Maintenance window', message: 'A teaching workspace update.' };
+    await request('communications/announce', 403, announcement, teacherToken);
+    await request('communications/announce', 403, announcement, activeToken);
+    const { users } = await request('users', 200, undefined, admin);
+    const activeTeachers = users.filter(account => account.role === 'teacher' && !account.pending && !account.suspended);
+    assert.equal((await request('communications/announce', 200, announcement, admin)).delivered, activeTeachers.length);
+    for (const teacherSession of [teacherToken, otherToken]) {
+      const inbox = await request('communications/inbox', 200, undefined, teacherSession);
+      assert.ok(inbox.notifications.some(item => item.title === announcement.title && item.message === announcement.message));
+    }
+    for (const studentSession of [activeToken, secondStudentToken]) {
+      const inbox = await request('communications/inbox', 200, undefined, studentSession);
+      assert.ok(inbox.notifications.every(item => item.title !== announcement.title));
+    }
   });
 })();

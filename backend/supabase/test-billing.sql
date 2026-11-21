@@ -65,6 +65,7 @@ declare
   teacher_slip jsonb := jsonb_build_object('slipId',(select value->>'id' from billing_test where name='teacher-slip'));
   student_slip jsonb := jsonb_build_object('slipId',(select value->>'id' from billing_test where name='student-slip'));
   expiry timestamptz;
+  notices jsonb;
 begin
   perform set_config('request.jwt.claim.sub',teacher,true);
   begin
@@ -73,14 +74,26 @@ begin
   exception when sqlstate 'PT402' then null;
   end;
   perform set_config('request.jwt.claim.sub',admin,true);
+  notices := public.sls_communications('inbox')->'notifications';
+  assert notices @> '[{"title":"Teacher payment awaiting review"},{"title":"Course payment awaiting review: Paid module"}]'::jsonb;
   perform public.sls_billing('approve',teacher_slip);
   perform set_config('request.jwt.claim.sub',peer,true);
+  assert not (public.sls_workspace('courses')->'courses' @> jsonb_build_array(jsonb_build_object('id',module->>'courseId')));
+  begin
+    perform public.sls_workspace('course',module);
+    raise exception 'Another teacher opened a private module';
+  exception when sqlstate 'PT404' then null;
+  end;
+  assert public.sls_billing('read')->'queue' = '[]'::jsonb;
+  assert public.sls_communications('inbox')->'notifications' = '[]'::jsonb;
   begin
     perform public.sls_billing('open',student_slip);
     raise exception 'Another teacher received a private slip';
   exception when sqlstate 'PT404' then null;
   end;
   perform set_config('request.jwt.claim.sub',teacher,true);
+  notices := public.sls_communications('inbox')->'notifications';
+  assert notices @> '[{"title":"Course payment awaiting review: Paid module"},{"title":"Payment approved","destination":"/teacher/dashboard#payments"}]'::jsonb;
   assert (public.sls_billing('read')->>'until')::timestamptz = now()+interval '720 hours';
   perform public.sls_billing('approve',student_slip);
   begin
@@ -89,6 +102,9 @@ begin
   exception when sqlstate 'PT409' then null;
   end;
   perform set_config('request.jwt.claim.sub',learner,true);
+  notices := public.sls_communications('inbox')->'notifications';
+  assert notices @> jsonb_build_array(jsonb_build_object('title','Payment approved','destination','/modules/' || (module->>'courseId') || '#payments'));
+  assert not (notices @> '[{"destination":"/teacher/dashboard#payments"}]'::jsonb);
   expiry := (public.sls_billing('read',module)->>'until')::timestamptz;
   assert expiry=now()+interval '720 hours';
   assert public.sls_workspace('course',module)->'lessons'->0->>'text'='Private lesson notes';

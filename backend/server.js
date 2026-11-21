@@ -84,7 +84,8 @@ function createServer({ file, seed = path.join(__dirname, 'data.json'), adminPas
         const liveScript = asset === 'vendor/livekit.js';
         if (req.method !== 'GET' || (!page && !assets.has(asset) && !liveScript)) return send(404, { error: 'Not found.' });
         const relative = page ? 'index.html' : liveScript ? livekitScript : asset;
-        res.writeHead(200, { 'Content-Type': types[path.extname(relative)] });
+        res.writeHead(200, { 'Content-Type': types[path.extname(relative)],
+          ...(relative === 'index.html' ? { 'Cache-Control': 'no-store' } : {}) });
         return res.end(fs.readFileSync(path.join(root, relative)));
       }
       if (req.method === 'GET' && route === '/api/health') return send(200, { ok: true, mode: cloudApi ? 'supabase' : 'local' });

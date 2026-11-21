@@ -326,7 +326,8 @@ textarea { min-height: 7rem; }
 .notification-actions .primary:hover { background: var(--soft); transform: none; }
 .notification-actions [role="status"]:empty, [data-notification-status]:empty, .feedback-confirmation:empty { display: none; }
 .notification-list li { gap: .65rem; }
-.notification-list a, .feedback-message { overflow-wrap: anywhere; }
+.notification-list a, .feedback-message, .notification-message { overflow-wrap: anywhere; }
+.notification-message { white-space: pre-wrap; }
 .notification-list small { display: block; color: var(--muted); }
 .notification-list .role-pill { flex-shrink: 0; }
 .feedback-entry { border: 1px solid var(--line); border-radius: .7rem; padding: .7rem .85rem; margin-top: .7rem; }

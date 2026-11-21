@@ -37,9 +37,9 @@ function requireEnrollmentCode(course, value) {
     fail(403, 'Enter the correct enrollment code from your teacher.');
 }
 
-function notify(data, email, title, destination) {
+function notify(data, email, title, destination, message = '') {
   (data.notifications ||= []).unshift({ id: randomUUID(), email, title, destination,
-    created_at: new Date().toISOString(), read_at: null });
+    message, created_at: new Date().toISOString(), read_at: null });
 }
 
 function communications(data, user, action, body) {
@@ -57,6 +57,18 @@ function communications(data, user, action, body) {
     };
   }
   const now = new Date().toISOString();
+  if (action === 'announce') {
+    if (!admin) fail(403, 'Administrator access required.');
+    if (!['teacher', 'student', 'both'].includes(body.audience)) fail(400, 'Choose an announcement audience.');
+    const title = required(body.title, 'Title', 120);
+    const message = required(body.message, 'Message', 1000);
+    const recipients = data.users.filter(account => !account.pending && !account.suspended &&
+      ['teacher', 'student'].includes(account.role) && (body.audience === 'both' || body.audience === account.role));
+    for (const account of recipients) {
+      notify(data, account.email, title, `/${account.role}/dashboard#notifications`, message);
+    }
+    return { delivered: recipients.length };
+  }
   if (action === 'read' || action === 'read_all') {
     const onlyOne = action === 'read';
     const notices = (data.notifications || []).filter(n => n.email === user.email && (!onlyOne || n.id === body.notificationId));
@@ -152,7 +164,7 @@ function workspace(data, user, method, route, body) {
     const { title, subject, description, status } = course;
     (course.history ||= []).unshift({ snapshot: { title, subject, description, status }, recorded_at: new Date().toISOString() });
   };
-  const communication = /^\/api\/communications(?:\/(inbox|submit|review|read|read_all))?$/.exec(route);
+  const communication = /^\/api\/communications(?:\/(inbox|submit|review|read|read_all|announce))?$/.exec(route);
   if (communication && (!communication[1] || communication[1] === 'inbox' ? method === 'GET' : method === 'POST'))
     return result(communications(data, user, communication[1] || 'list', body));
   if (method === 'GET' && route === '/api/me') return result({ user });
@@ -177,6 +189,9 @@ function workspace(data, user, method, route, body) {
       setEnrollmentCode(course, body.enrollmentCode);
       addRevision(course);
       data.courses.push(course);
+      for (const account of data.users.filter(account => account.role === 'admin' && !account.suspended)) {
+        notify(data, account.email, 'Module created: ' + course.title, '/modules/' + course.id);
+      }
       return result({ course: summarize(course) }, 201);
     }
   }
