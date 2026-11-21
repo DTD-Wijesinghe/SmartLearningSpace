@@ -81,11 +81,10 @@
         </figure>
       </section>
       <section class="section-wrap" id="how-it-works" tabindex="-1">
-        <header class="section-head landing-head"><h2>A workspace for every role</h2><p>Everyone has a clear next step, from the first lesson to the next course launch.</p></header>
+        <header class="section-head landing-head"><h2>A workspace for students and teachers</h2><p>Everyone has a clear next step, from the first lesson to the next course launch.</p></header>
         <div class="feature-grid">
           <article class="feature purple"><span class="feature-icon" aria-hidden="true">✦</span><h3>For students</h3><p>Discover published courses, enroll, and see your progress as you complete lessons.</p><a href="${user ? dashboard() : '/register'}" data-link>Start learning</a></article>
           <article class="feature coral"><span class="feature-icon" aria-hidden="true">✎</span><h3>For teachers</h3><p>Draft a course, add lessons, and publish when you’re ready. See who has enrolled.</p><a href="${user ? dashboard() : '/register?teacher=1'}" data-link>Start teaching</a></article>
-          <article class="feature teal"><span class="feature-icon" aria-hidden="true">▤</span><h3>For administrators</h3><p>Review teacher requests, manage account access, and oversee courses.</p><a href="${user ? dashboard() : '/login'}" data-link>Sign in to manage</a></article>
         </div>
       </section>
       <section class="section-wrap faq"><header class="section-head"><h2>Getting started</h2></header><div class="faq-list">

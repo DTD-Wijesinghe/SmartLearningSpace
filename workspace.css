@@ -109,7 +109,9 @@ footer strong { color: var(--ink); }
 .section-head { margin-bottom: 1.05rem; }
 .section-head p:not(.eyebrow) { color: var(--muted); }
 .landing-head { text-align: center; margin-bottom: 1.55rem; }
-.feature-grid, .course-grid, .stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.feature-grid, .course-grid, .stat-grid { display: grid; gap: 1rem; }
+.feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.course-grid, .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .feature, .panel, .stat-grid article, .course-card, .records, .workspace-nav { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .feature { padding: clamp(1.1rem, 2.7vw, 1.75rem); transition: transform .22s, box-shadow .22s; }
 .feature:hover, .course-card:hover { transform: translateY(-4px); }
@@ -117,7 +119,6 @@ footer strong { color: var(--ink); }
 .feature p { color: var(--muted); margin-bottom: 1rem; }
 .feature a { font-weight: 690; }
 .feature.coral .feature-icon { background: #ffe8ed; color: #942d54; }
-.feature.teal .feature-icon { background: #d9f7f2; color: #13705e; }
 .faq { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(0, 1.7fr); gap: 1rem; padding-top: 1rem; }
 .faq-list { display: grid; gap: .65rem; }
 .faq details { background: var(--surface); border: 1px solid var(--line); border-radius: .8rem; padding: .85rem 1rem; }
@@ -359,7 +360,6 @@ progress { width: 100%; display: block; height: .5rem; margin: .25rem 0; accent-
 @media (max-width: 48rem) {
   .hero { grid-template-columns: 1fr; gap: 1.35rem; }
   .hero-art img { aspect-ratio: 1.6; }
-  .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspace { grid-template-columns: 1fr; gap: .85rem; }
   .workspace-nav { position: static; padding: .6rem .85rem; }
   .workspace-nav .workspace-identity { display: none; }
