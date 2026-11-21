@@ -849,8 +849,10 @@
           <p class="muted">${verify ? 'Set a new password after opening the verification link from your email.' : 'Enter your account email. If it is eligible, you’ll receive a reset link. Open the link in this same browser.'}</p>
           ${verify && !recoveryCode ? '<p>Open the link from your email first, or request a new link.</p>' :
             form(verify ? 'password/reset' : 'password/recover', fields, verify ? 'Reset password' : 'Send reset link')}
-          <div class="auth-links"><a href="/login" data-link>Back to sign in</a>
-            ${verify ? '<a href="/forgot-password" data-link>Request a new link</a>' : ''}</div></div>
+          <div class="auth-actions">
+            <button class="secondary" type="button" data-auth-page="/login">Back to sign in</button>
+            ${verify ? '<button class="secondary" type="button" data-auth-page="/forgot-password">Request a new link</button>' : ''}
+          </div></div>
         <figure class="auth-art"><img src="/assets/learning-studio.webp" alt="" width="1440" height="960"><figcaption>Return to your workspace</figcaption></figure>
       </section>`;
       return;
@@ -873,11 +875,10 @@
           <p class="muted">${register ? 'Join your learning workspace or request teacher access.' : 'Access your courses and pick up where you left off.'}</p>
           ${!register && new URLSearchParams(location.search).get('password') === 'updated' ? '<p class="auth-success" role="status">Password updated. Sign in with your new password.</p>' : ''}
           ${form(register ? 'register' : 'login', fields, register ? 'Register' : 'Sign in')}
-          ${register ? '<div class="auth-links"><a href="/login" data-link>Already registered? Sign in</a></div>' :
-            `<div class="auth-links auth-actions">
+          <div class="auth-actions">${register ? '<button class="secondary" type="button" data-auth-page="/login">Back to sign in</button>' : `
               <button class="secondary" type="button" data-auth-page="/forgot-password">Forgot password?</button>
-              <button class="secondary" type="button" data-auth-page="/register">Create an account</button>
-            </div>`}
+              <button class="secondary" type="button" data-auth-page="/register">Create an account</button>`}
+          </div>
         </div>
         <figure class="auth-art"><img src="/assets/teaching-studio.webp" alt="An educator preparing a lesson at her desk" width="1200" height="800">
           <figcaption>Your Space for<br>Smarter Learning.</figcaption></figure>

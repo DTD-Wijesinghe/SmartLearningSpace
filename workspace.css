@@ -152,8 +152,7 @@ summary { font-weight: 750; }
 .auth-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .auth-art::after { content: ""; position: absolute; z-index: 0; inset: 35% 0 0; background: linear-gradient(transparent, #12102bed); }
 .auth-art figcaption { z-index: 1; position: relative; padding: 2rem; color: #fff; font-weight: 780; font-size: clamp(1.8rem, 4vw, 3.1rem); letter-spacing: -.05em; line-height: 1.05; }
-.auth-links { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; margin-top: .75rem; border-top: 1px solid var(--line); padding-top: .9rem; }
-.auth-actions { gap: .6rem; }
+.auth-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .75rem; border-top: 1px solid var(--line); padding-top: .9rem; }
 .auth-actions button { flex: 1 1 auto; min-height: 2.75rem; }
 .auth-success { padding: .65rem .85rem; border-radius: .65rem; background: var(--soft); color: var(--ink); }
 .module-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(9rem, 15rem); align-items: center; gap: 1.25rem; }
