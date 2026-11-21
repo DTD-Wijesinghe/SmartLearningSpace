@@ -15,7 +15,7 @@ declare
   module jsonb;
 begin
   perform set_config('request.jwt.claim.sub',owner_id,true);
-  course_ref := jsonb_build_object('courseId',public.sls_workspace('create','{"title":"QA Module","subject":"Biology","description":"Module overview"}')->'course'->>'id');
+  course_ref := jsonb_build_object('courseId',public.sls_workspace('create','{"enrollmentCode":"FixtureCode-26","title":"QA Module","subject":"Biology","description":"Module overview"}')->'course'->>'id');
   perform public.sls_workspace('edit',course_ref || '{"title":"Updated QA Module","subject":"Biology"}');
   perform public.sls_workspace('lessons',course_ref || '{"title":"Introduction","description":"Overview","text":"Lesson content"}');
   if public.sls_workspace('course',course_ref)->'course'->>'status' = 'draft' then
@@ -41,7 +41,7 @@ begin
     raise exception 'Unenrolled student submitted an exam';
   exception when insufficient_privilege then null;
   end;
-  perform public.sls_workspace('enroll',course_ref);
+  perform public.sls_workspace('enroll',course_ref || '{"enrollmentCode":"FixtureCode-26"}');
   module := public.sls_workspace('course',course_ref);
   assert not ((module->'exams'->0->'questions'->0) ? 'correct');
   perform public.sls_workspace('exam_submit',exam_ref || '{"answers":[0]}');
@@ -67,7 +67,7 @@ begin
   assert public.sls_workspace('course',course_ref)->'exams'->0->'result'->>'feedback' = 'Well done';
   assert public.sls_workspace('course',course_ref)->'exams'->0->'submissions' = '[]';
   perform set_config('request.jwt.claim.sub','b1078ff5-c2ad-4213-930b-46fd00a20004',true);
-  perform public.sls_workspace('enroll',course_ref);
+  perform public.sls_workspace('enroll',course_ref || '{"enrollmentCode":"FixtureCode-26"}');
   assert public.sls_workspace('course',course_ref)->'exams'->0->'result' = 'null';
 end $$;
 rollback;

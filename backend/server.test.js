@@ -50,7 +50,10 @@
     const studentToken = studentLogin.token;
     await request('users', 403, undefined, studentToken);
     await request('courses', 403, { title: 'Restricted' }, studentToken);
-    const { course } = await request('courses', 201, { title: 'Test Course' }, teacherToken);
+    await request('courses', 422, { title: 'Missing code' }, teacherToken);
+    const enrollmentCode = 'ExampleModule-42';
+    const replacementCode = 'ReplacementModule-73';
+    const { course } = await request('courses', 201, { title: 'Test Course', enrollmentCode }, teacherToken);
     const route = 'courses/' + course.id;
     assert.equal((await request(route, 200, undefined, studentToken)).course.status, 'published');
     await request(route, 404, undefined, otherToken);
@@ -58,10 +61,11 @@
     await request(route + '/lessons', 200, { title: 'Practice' }, teacherToken);
     assert.deepEqual((await request(route, 200, undefined, studentToken)).lessons, []);
     const { outline } = await request(route + '/module_page', 200, undefined, studentToken);
-    assert.deepEqual(outline.map(lecture => lecture.title), ['Welcome', 'Practice']);
-    assert.ok(outline.every(lecture => !Object.hasOwn(lecture, 'text')));
+    assert.deepEqual(outline, []);
     await request(route + '/message_create', 403, { kind: 'question', subject: 'Private', text: 'Can you help?' }, studentToken);
-    await request(route + '/enroll', 200, {}, studentToken);
+    await request(route + '/enroll', 403, {}, studentToken);
+    await request(route + '/enroll', 403, { enrollmentCode: 'IncorrectCode-20' }, studentToken);
+    await request(route + '/enroll', 200, { enrollmentCode }, studentToken);
     await request(route + '/enroll', 200, {}, studentToken);
     const { lessons } = await request(route, 200, undefined, studentToken);
     assert.equal(lessons[0].text, 'Course material');
@@ -94,7 +98,10 @@
     const secondStudent = 'other-student@example.test';
     await request('register', 201, { email: secondStudent, password, name: 'Other Student' });
     const secondStudentToken = (await login(secondStudent)).token;
-    await request(route + '/enroll', 200, {}, secondStudentToken);
+    await request(route + '/edit', 200, { title: 'Test Course', enrollmentCode: replacementCode }, teacherToken);
+    await request(route + '/enroll', 403, { enrollmentCode }, secondStudentToken);
+    await request(route + '/enroll', 200, { enrollmentCode: replacementCode }, secondStudentToken);
+    assert.equal((await request(route, 200, undefined, activeToken)).course.enrolled, true);
     assert.deepEqual((await request(route + '/module_page', 200, undefined, secondStudentToken)).conversations, []);
     await request(route + '/message_reply', 404, { threadId: thread.id, text: 'Not my thread' }, secondStudentToken);
     await request(route + '/message_reply', 200, { threadId: thread.id, text: 'Of course.' }, teacherToken);

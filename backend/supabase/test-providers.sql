@@ -38,7 +38,16 @@ begin
     raise exception 'Unenrolled student received a room grant';
   exception when insufficient_privilege then null;
   end;
-  perform public.sls_workspace('enroll',module);
+  begin
+    perform public.sls_workspace('enroll',module || '{"enrollmentCode":"FixtureCode-26"}');
+    raise exception 'Student enrolled in a legacy module without a code set';
+  exception when sqlstate 'PT409' then null;
+  end;
+  perform set_config('request.jwt.claim.sub',teacher,true);
+  assert public.sls_workspace('course',module)->'course'->>'enrollmentCodeSet' = 'false';
+  perform public.sls_workspace('edit',module || '{"title":"Services QA","enrollmentCode":"FixtureCode-26"}');
+  perform set_config('request.jwt.claim.sub',student,true);
+  perform public.sls_workspace('enroll',module || '{"enrollmentCode":"FixtureCode-26"}');
   assert public.sls_module_services('join_live',module)->>'host' = 'false';
   assert public.sls_module_services('list',module)->'assets' = '[]';
   begin

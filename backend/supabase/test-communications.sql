@@ -24,9 +24,9 @@ begin
   assert not has_function_privilege('anon','public.sls_communications(text,jsonb)','EXECUTE');
   perform set_config('request.jwt.claim.sub',teacher,true);
   assert (public.sls_communications('list')->'notifications'->0->>'title') = 'Your teacher account was approved.';
-  module := jsonb_build_object('courseId',public.sls_workspace('create','{"title":"Notices QA"}')->'course'->>'id');
+  module := jsonb_build_object('courseId',public.sls_workspace('create','{"enrollmentCode":"FixtureCode-26","title":"Notices QA"}')->'course'->>'id');
   perform set_config('request.jwt.claim.sub',learner,true);
-  perform public.sls_workspace('enroll',module);
+  perform public.sls_workspace('enroll',module || '{"enrollmentCode":"FixtureCode-26"}');
   review := jsonb_build_object('feedbackId', public.sls_communications('submit',
     '{"topic":"issue","subject":"Playback","message":"Video paused unexpectedly."}')->>'id');
   perform set_config('request.jwt.claim.sub',admin,true);

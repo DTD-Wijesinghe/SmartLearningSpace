@@ -88,7 +88,7 @@
         </div>
       </section>
       <section class="section-wrap faq"><header class="section-head"><h2>Getting started</h2></header><div class="faq-list">
-        <details><summary>How do I join a course?</summary><p>Sign in as a student, open a published course under Explore courses, and choose Enroll.</p></details>
+        <details><summary>How do I join a course?</summary><p>Sign in as a student, choose a course under Explore courses, and enter the enrollment code your teacher shared.</p></details>
         <details><summary>How do I become a teacher?</summary><p>Select the teacher option when you register. Confirm your email to sign in and use your five-day trial.</p></details>
         <details><summary>Where do I see my progress?</summary><p>Open an enrolled course and mark lessons complete. Your course card updates as you go.</p></details>
       </div></section>
@@ -107,16 +107,22 @@
         ${course.description ? `<p class="course-description">${escape(course.description)}</p>` : ''}
         ${course.enrolled ? `<div class="progress-label"><span>Progress</span><strong>${progress}%</strong></div><progress max="100" value="${progress}" aria-label="Course completion"></progress>` : ''}
         ${Number(course.monthlyFee) > 0 ? `<p>${escape(feeLabel(course.monthlyFee))} per 30 days</p>` : ''}
-        <a class="secondary module-link" data-link href="/modules/${encodeURIComponent(course.id)}${course.billingLocked ? '#payments' : ''}">${course.billingLocked ? 'Pay course fee' : course.enrolled ? 'Continue learning' : 'Open module'}</a>
+        <a class="secondary module-link" data-link href="/modules/${encodeURIComponent(course.id)}${course.billingLocked ? '#payments' : ''}">${course.billingLocked ? 'Pay course fee' : course.enrolled ? 'Continue learning' : user.role === 'student' ? 'Join module' : 'Open module'}</a>
       </div></article>`;
   }
 
   function moduleFields(course = {}) {
+    const codeRequired = !course.enrollmentCodeSet;
     return `<label>Course title<input name="title" maxlength="160" value="${escape(course.title)}" required></label>
       <label>Subject<input name="subject" maxlength="100" value="${escape(course.subject)}"></label>
       <label>Course description<textarea name="description" maxlength="2000">${escape(course.description)}</textarea></label>
       <label>Monthly course fee (LKR)<input name="monthlyFee" type="number" min="0" max="99999999.99" step=".01" value="${escape(course.monthlyFee ?? 0)}" required></label>
-      <p class="muted">Use 0 for a free module. Save your bank details under Payments before charging a fee.</p>`;
+      <p class="muted">Use 0 for a free module. Save your bank details under Payments before charging a fee.</p>
+      <label>${codeRequired ? 'Enrollment code' : 'New enrollment code (optional)'}
+        <input name="enrollmentCode" minlength="12" maxlength="48" pattern="[A-Za-z0-9_\\-]{12,48}" autocomplete="off" spellcheck="false" ${codeRequired ? 'required' : ''}>
+      </label>
+      <p class="muted">Use 12–48 letters, numbers, hyphens, or underscores. Copy the code before saving and share it privately with your students.${codeRequired ? '' : ' A new code applies to future enrollments.'}</p>
+      <div><button class="secondary" type="button" data-generate-enrollment-code>Generate a code</button></div>`;
   }
 
   function examQuestion(index) {
@@ -150,7 +156,7 @@
   }
 
   const helpAnswers = [
-    [/enrol|join/i, 'Open a published course module from Explore courses and select Enroll. Your lessons and available exams will then appear on that page.'],
+    [/enrol|join/i, 'Choose a module under Explore courses and enter the enrollment code from your teacher to unlock lessons and exams.'],
     [/exam|quiz|mark|result/i, 'Open your enrolled module and expand an exam under Exams and results. After you submit, return there when your teacher releases the result.'],
     [/lesson|progress|improve/i, 'Open your module, work through the lessons, and select Mark complete. Return to incomplete lessons and use any feedback your teacher has released.'],
     [/password|sign in|login/i, 'Use the shared sign-in page with your registered email. The Show password button reveals what you typed.'],
@@ -843,9 +849,22 @@
     detail.innerHTML = '<p class="loading" role="status">Loading course…</p>';
     try {
       const route = `courses/${id}`;
-      const [{ course, lessons, students, completed, exams, history = [], learnerProgress = [] }, page, available] = await Promise.all([
-        api(route), api(route + '/module_page').catch(error => ({ error: error.message })),
-        api('capabilities').catch(() => ({})),
+      const { course, lessons, students, completed, exams, history = [], learnerProgress = [] } = await api(route);
+      if (current !== revision || request !== courseRevision || !detail.isConnected) return;
+      if (user.role === 'student' && !course.enrolled) {
+        detail.innerHTML = `<article class="panel course-detail enter"><header class="module-heading">
+          <p class="eyebrow">${escape(course.subject || 'Subject module')}</p><h2>${escape(course.title)}</h2>
+          <p>${escape(course.teacher)}${Number(course.monthlyFee) > 0 ? ` · ${escape(feeLabel(course.monthlyFee))} per 30 days` : ''}</p>
+          ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</header>
+          <section class="module-section" aria-labelledby="enrollment-title"><h2 id="enrollment-title">Join this module</h2>
+          <p class="muted">Enter the enrollment code your teacher shared to unlock the module.</p>
+          ${form(`${route}/enroll`, '<label>Enrollment code<input name="enrollmentCode" maxlength="48" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>', 'Enroll in module')}
+          </section></article>`;
+        detail.focus();
+        return;
+      }
+      const [page, available] = await Promise.all([
+        api(route + '/module_page').catch(error => ({ error: error.message })), api('capabilities').catch(() => ({})),
       ]);
       if (current !== revision || request !== courseRevision || !detail.isConnected) return;
       capabilities = available;
@@ -866,10 +885,9 @@
       const services = (manage || course.enrolled) && (capabilities.materials || capabilities.live)
         ? await api(route + '/services').catch(() => null) : null;
       if (current !== revision || request !== courseRevision || !detail.isConnected) return;
-      const outlineOnly = user.role === 'student' && !course.enrolled;
       const outline = page.outline || [];
       const order = new Map(outline.map((lecture, i) => [lecture.id, i]));
-      const lectures = outlineOnly ? outline : [...lessons].sort((a, b) =>
+      const lectures = [...lessons].sort((a, b) =>
         (order.get(a.id) ?? outline.length) - (order.get(b.id) ?? outline.length));
       const assets = admin ? page.assets || [] : services?.assets || [];
       const archived = course.status === 'suspended';
@@ -877,10 +895,10 @@
         ${Number(course.monthlyFee) > 0 ? `<p>${escape(feeLabel(course.monthlyFee))} per 30 days</p>` : ''}
         ${course.description ? `<p class="module-description">${escape(course.description)}</p>` : ''}</header>
         ${manage && course.status === 'draft' ? form(`${route}/publish`, '', 'Publish course') : ''}
-        ${manage ? `<details class="panel"><summary>Edit module details</summary>${form(`${route}/edit`, moduleFields(course), 'Save module')}</details>` : ''}
+        ${manage ? `<details class="panel"><summary>Edit module details and enrollment code</summary>${form(`${route}/edit`, moduleFields(course), 'Save module')}</details>
+          ${course.enrollmentCodeSet ? '' : '<p class="muted">Set an enrollment code to allow new students to join this module.</p>'}` : ''}
         ${admin ? form(route + (archived ? '/restore' : '/archive'), '', archived ? 'Restore module' : 'Archive module',
           archived ? '' : 'Archive this module and remove it from student access?') : ''}
-        ${outlineOnly && !invite ? form(`${route}/enroll`, '', 'Enroll in module') : ''}
         ${paidCourse ? paymentPanel(billing, id) : ''}
         ${moduleLive(services, route, manage && course.status !== 'draft', invite, course.enrolled)}
         <section class="module-section lecture-series" aria-labelledby="lecture-heading">
@@ -888,19 +906,18 @@
           ${manage ? `<details class="panel"><summary>Add lecture</summary>${form(`${route}/lessons`,
             '<label>Lecture title<input name="title" maxlength="160" required></label><label>Description<input name="description" maxlength="1000"></label><label>Lecture notes<textarea name="text" maxlength="12000"></textarea></label>',
             'Save lecture')}</details>` : ''}
-          ${outlineOnly ? '<p class="muted">Enroll to access the lecture notes, videos, and documents.</p>' : ''}
           ${lectures.length ? `<ol class="lecture-list">${lectures.map((lesson, index) => `<li class="lecture-card" id="lecture-${escape(lesson.id)}" tabindex="-1">
             <p class="eyebrow">Lecture ${index + 1}</p><h3>${escape(lesson.title)}</h3>
             ${lesson.description ? `<p class="muted">${escape(lesson.description)}</p>` : ''}
             ${lesson.text ? `<p class="lecture-notes">${escape(lesson.text)}</p>` : ''}
-            ${!outlineOnly && (admin || manage || course.enrolled) ? lessonMaterials(assets.filter(asset => asset.lesson === lesson.id),
+            ${admin || manage || course.enrolled ? lessonMaterials(assets.filter(asset => asset.lesson === lesson.id),
               route, lesson, manage, admin, services?.enabled.materials) : ''}
             ${course.enrolled ? completed.includes(lesson.id) ? '<p class="completed">✓ Completed</p>' :
               form(`${route}/progress`, `<input type="hidden" name="lessonId" value="${escape(lesson.id)}">`, 'Mark complete') : ''}
           </li>`).join('')}</ol>` : '<p class="muted">No lectures have been added yet.</p>'}
         </section>
         ${page.error ? `<p class="error" role="status">${escape(page.error)}</p>`
-          : !outlineOnly ? moduleConversations(course, route, page.conversations) : ''}
+          : moduleConversations(course, route, page.conversations)}
         ${students ? `<section class="module-section"><h2>Learner progress</h2>${learnerProgress.length ? `<ul class="module-list">${learnerProgress.map(p => `<li><strong>${escape(p.name)}</strong><span>${escape(p.completed)} of ${lessons.length} lessons complete</span></li>`).join('')}</ul>` : `<p>${students.map(s => escape(s.name)).join(', ') || 'No students enrolled yet.'}</p>`}</section>` : ''}
         ${course.enrolled ? `<section class="module-tip provider-panel"><strong>Your next step</strong> ${course.progress >= 100 ? 'Review the module and check for available exams.' : 'Continue with your next unfinished lesson.'}
           ${capabilities.ai ? `<p><button type="button" data-provider-action="${route}/ai_progress">Suggest study steps</button></p><p class="provider-status" role="status"></p>` : ''}</section>` : ''}
@@ -921,7 +938,7 @@
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control],[data-notification-refresh],[data-payment-open]');
+    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-provider-action],[data-live-control],[data-notification-refresh],[data-payment-open],[data-generate-enrollment-code]');
     if (!control) return;
     if (control.hasAttribute('data-link')) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -929,6 +946,10 @@
       if (control.dataset.noticeId && !classRecorder)
         await api('communications/read', { notificationId: control.dataset.noticeId }).catch(() => {});
       go(control.getAttribute('href'));
+    } else if (control.hasAttribute('data-generate-enrollment-code')) {
+      const field = control.form.elements.enrollmentCode;
+      field.value = crypto.randomUUID();
+      field.select();
     } else if (control.hasAttribute('data-payment-open')) {
       const status = control.closest('details').querySelector('[data-slip-link]');
       control.disabled = true;

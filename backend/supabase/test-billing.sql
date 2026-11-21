@@ -20,7 +20,7 @@ begin
   perform set_config('request.jwt.claim.sub',teacher,true);
   assert public.sls_billing('read')->>'active' = 'true';
   perform public.sls_billing('save_bank','{"holder":"Owner","bank":"Fixture bank","branch":"Main","account":"0000012345"}');
-  module := jsonb_build_object('courseId',public.sls_workspace('create','{"title":"Paid module","monthlyFee":1200}')->'course'->>'id');
+  module := jsonb_build_object('courseId',public.sls_workspace('create','{"enrollmentCode":"FixtureCode-26","title":"Paid module","monthlyFee":1200}')->'course'->>'id');
   perform public.sls_workspace('lessons',module || '{"title":"Private lecture","text":"Private lesson notes"}');
   perform set_config('request.jwt.claim.sub',learner,true);
   begin
@@ -28,7 +28,7 @@ begin
     raise exception 'Unenrolled student received bank details';
   exception when insufficient_privilege then null;
   end;
-  perform public.sls_workspace('enroll',module);
+  perform public.sls_workspace('enroll',module || '{"enrollmentCode":"FixtureCode-26"}');
   assert public.sls_billing('read',module)->'bank'->>'account' = '0000012345';
   assert public.sls_workspace('course',module)->'lessons' = '[]'::jsonb;
   assert public.sls_workspace('courses')->'courses'->0->>'billingLocked' = 'true';
@@ -68,7 +68,7 @@ declare
 begin
   perform set_config('request.jwt.claim.sub',teacher,true);
   begin
-    perform public.sls_workspace('create','{"title":"Locked teacher"}');
+    perform public.sls_workspace('create','{"enrollmentCode":"FixtureCode-26","title":"Locked teacher"}');
     raise exception 'Expired teacher created a module';
   exception when sqlstate 'PT402' then null;
   end;

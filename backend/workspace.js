@@ -1,4 +1,4 @@
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomBytes, scryptSync, timingSafeEqual } = require('node:crypto');
 
 function fail(status, message) {
   throw Object.assign(new Error(message), { status });
@@ -15,6 +15,26 @@ function optional(value, label, max, fallback = '') {
   if (typeof value !== 'string' || value.trim().length > max)
     fail(400, `${label} may contain at most ${max} characters.`);
   return value.trim();
+}
+
+function validEnrollmentCode(value) {
+  const code = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z0-9_-]{12,48}$/.test(code) ? code : '';
+}
+
+function setEnrollmentCode(course, value) {
+  const code = validEnrollmentCode(value);
+  if (!code) fail(422, 'Use 12–48 letters, numbers, hyphens, or underscores for the enrollment code.');
+  const salt = randomBytes(16).toString('hex');
+  course.enrollmentCodeHash = `${salt}:${scryptSync(code, salt, 32).toString('hex')}`;
+}
+
+function requireEnrollmentCode(course, value) {
+  if (!course.enrollmentCodeHash) fail(409, 'Ask your teacher to set an enrollment code for this module.');
+  const code = validEnrollmentCode(value);
+  const [salt, hash] = course.enrollmentCodeHash.split(':');
+  if (!code || !timingSafeEqual(scryptSync(code, salt, 32), Buffer.from(hash, 'hex')))
+    fail(403, 'Enter the correct enrollment code from your teacher.');
 }
 
 function notify(data, email, title, destination) {
@@ -73,7 +93,7 @@ function modulePage(data, course, user, action, body, { admin, owner, learner, a
   const visible = thread => admin || owner || (learner && thread.student === user.email);
   if (action === 'module_page') {
     return {
-      outline: (course.content || []).map(({ id, title, description }) => ({ id, title, description })),
+      outline: admin || owner || learner ? (course.content || []).map(({ id, title, description }) => ({ id, title, description })) : [],
       assets: [],
       conversations: threads.filter(visible).map(({ id, kind, subject, studentName, closed, messages }) =>
         ({ id, kind, subject, student: studentName, closed, messages })),
@@ -154,6 +174,7 @@ function workspace(data, user, method, route, body) {
       const course = { id: randomUUID(), title: required(body.title, 'Title'), status: 'published',
         description: optional(body.description, 'Description', 2000), subject: optional(body.subject, 'Subject', 100),
         teacher: user.name, owner: user.email, content: [], students: [] };
+      setEnrollmentCode(course, body.enrollmentCode);
       addRevision(course);
       data.courses.push(course);
       return result({ course: summarize(course) }, 201);
@@ -196,7 +217,8 @@ function workspace(data, user, method, route, body) {
   }));
   if (method === 'GET' && action === 'moderation') return result({ assets: [] });
   if (method === 'GET' && !action) {
-    return result({ course: summarize(course), lessons: owns(course) || admin || enrolled(course) ? course.content || [] : [],
+    return result({ course: { ...summarize(course), ...(owns(course) && { enrollmentCodeSet: Boolean(course.enrollmentCodeHash) }) },
+      lessons: owns(course) || admin || enrolled(course) ? course.content || [] : [],
       students: owns(course) ? data.users.filter(enrolledUser => (course.students || []).includes(enrolledUser.email))
         .map(({ name }) => ({ name })) : undefined,
       history: owns(course) ? (course.history || []).slice(0, 15) : [],
@@ -206,15 +228,20 @@ function workspace(data, user, method, route, body) {
   }
   if (method !== 'POST') fail(405, 'Method not allowed.');
   if (action === 'enroll' && student && published(course)) {
-    if (!enrolled(course)) (course.students ||= []).push(user.email);
+    if (!enrolled(course)) {
+      requireEnrollmentCode(course, body.enrollmentCode);
+      (course.students ||= []).push(user.email);
+    }
   } else if (action === 'publish' && owns(course) && course.status === 'draft') {
     if (!course.content?.length) fail(409, 'Add a lesson before publishing.');
     course.status = 'published';
     addRevision(course);
   } else if (action === 'edit' && owns(course) && course.status !== 'suspended') {
-    course.title = required(body.title, 'Title');
-    course.description = optional(body.description, 'Description', 2000, course.description);
-    course.subject = optional(body.subject, 'Subject', 100, course.subject);
+    const title = required(body.title, 'Title');
+    const description = optional(body.description, 'Description', 2000, course.description);
+    const subject = optional(body.subject, 'Subject', 100, course.subject);
+    if (body.enrollmentCode !== undefined && body.enrollmentCode !== '') setEnrollmentCode(course, body.enrollmentCode);
+    Object.assign(course, { title, description, subject });
     addRevision(course);
   } else if (action === 'suspend' && admin && published(course)) {
     course.previousStatus = course.status;

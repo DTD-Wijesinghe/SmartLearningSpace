@@ -5,7 +5,7 @@ const verifyId = value => {
   if (typeof value !== 'string' || !uuid.test(value)) fail(400, 'Choose a valid item.');
   return value;
 };
-const help = 'SmartLearningSpace uses one sign-in page. In Explore courses, open a published module and choose Enroll. In an enrolled module, links are shown for lessons, materials, exams and active live classes when available. Mark a lesson complete to update progress. A submitted exam result appears after the teacher releases it.';
+const help = 'SmartLearningSpace uses one sign-in page. In Explore courses, choose a module and enter the enrollment code from your teacher. In an enrolled module, links are shown for lessons, materials, exams and active live classes when available. Mark a lesson complete to update progress. A submitted exam result appears after the teacher releases it.';
 
 function moduleServices({ providers, rpc, serviceRpc, confirmAsset }) {
   const enabled = { materials: Boolean(providers.r2 && confirmAsset), live: Boolean(providers.live), ai: Boolean(providers.ai) };

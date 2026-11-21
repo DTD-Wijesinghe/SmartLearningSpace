@@ -20,29 +20,31 @@ declare
   created jsonb;
 begin
   perform set_config('request.jwt.claim.sub',teacher,true);
-  created := public.sls_workspace('create','{"title":"Lectures QA"}')->'course';
+  created := public.sls_workspace('create','{"enrollmentCode":"FixtureCode-26","title":"Lectures QA"}')->'course';
   assert created->>'status' = 'published';
   module := jsonb_build_object('courseId',created->>'id');
   perform public.sls_workspace('lessons',module || '{"title":"Lecture notes","text":"Private content"}');
   perform public.sls_workspace('lessons',module || '{"title":"Files only","text":""}');
   perform set_config('request.jwt.claim.sub',learner,true);
   page := public.sls_module_page('read',module);
-  assert jsonb_array_length(page->'outline') = 2;
-  assert page->'outline'->0->>'title' = 'Lecture notes';
-  assert page->'outline'->1->>'title' = 'Files only';
-  assert not ((page->'outline'->0) ? 'text');
+  assert page->'outline' = '[]'::jsonb;
   assert jsonb_array_length(public.sls_workspace('course',module)->'lessons') = 0;
   begin
     perform public.sls_module_page('message_create',module || '{"kind":"question","subject":"Help","text":"Can we review this?"}');
     raise exception 'Unenrolled learner sent a message';
   exception when insufficient_privilege then null;
   end;
-  perform public.sls_workspace('enroll',module);
+  perform public.sls_workspace('enroll',module || '{"enrollmentCode":"FixtureCode-26"}');
+  page := public.sls_module_page('read',module);
+  assert jsonb_array_length(page->'outline') = 2;
+  assert page->'outline'->0->>'title' = 'Lecture notes';
+  assert page->'outline'->1->>'title' = 'Files only';
+  assert not ((page->'outline'->0) ? 'text');
   assert jsonb_array_length(public.sls_workspace('course',module)->'lessons') = 2;
   thread := jsonb_build_object('threadId',public.sls_module_page('message_create',
     module || '{"kind":"question","subject":"Help","text":"Can we review this?"}')->>'id');
   perform set_config('request.jwt.claim.sub',peer,true);
-  perform public.sls_workspace('enroll',module);
+  perform public.sls_workspace('enroll',module || '{"enrollmentCode":"FixtureCode-26"}');
   assert public.sls_module_page('read',module)->'conversations' = '[]'::jsonb;
   begin
     perform public.sls_module_page('message_reply',module || thread || '{"text":"I can see this"}');

@@ -13,6 +13,7 @@ declare
   teacher text := 'b1078ff5-c2ad-4213-930b-46fd00a10002';
   student text := 'b1078ff5-c2ad-4213-930b-46fd00a10003';
   course jsonb;
+  other_course jsonb;
   lesson_id text;
   view_data jsonb;
 begin
@@ -27,7 +28,13 @@ begin
   perform set_config('request.jwt.claim.sub', 'b1078ff5-c2ad-4213-930b-46fd00a10001', true);
   perform public.sls_workspace('approve','{"email":"teacher-fixture@example.test"}');
   perform set_config('request.jwt.claim.sub', teacher, true);
-  course := jsonb_build_object('courseId', public.sls_workspace('create','{"title":"QA Course"}')->'course'->>'id');
+  begin
+    perform public.sls_workspace('create','{"title":"Missing code"}');
+    raise exception 'Module was created without a code';
+  exception when sqlstate 'PT422' then null;
+  end;
+  course := jsonb_build_object('courseId', public.sls_workspace('create','{"enrollmentCode":"FixtureCode-26","title":"QA Course"}')->'course'->>'id');
+  other_course := jsonb_build_object('courseId',public.sls_workspace('create','{"enrollmentCode":"OtherFixture-29","title":"Other course"}')->'course'->>'id');
   perform public.sls_workspace('lessons', course || '{"title":"QA Lesson","text":"Protected test text"}');
   if public.sls_workspace('course',course)->'course'->>'status' = 'draft' then
     perform public.sls_workspace('publish', course);
@@ -40,8 +47,27 @@ begin
   exception when insufficient_privilege then null;
   end;
   assert public.sls_workspace('course', course)->'lessons' = '[]';
-  perform public.sls_workspace('enroll', course);
-  perform public.sls_workspace('enroll', course);
+  assert not (public.sls_workspace('course', course)->'course' ? 'enrollmentCodeSet');
+  begin
+    perform public.sls_workspace('enroll', course);
+    raise exception 'Student enrolled without a code';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.sls_workspace('enroll', other_course || '{"enrollmentCode":"FixtureCode-26"}');
+    raise exception 'Student enrolled using another module code';
+  exception when insufficient_privilege then null;
+  end;
+  perform set_config('request.jwt.claim.sub', teacher, true);
+  perform public.sls_workspace('edit', course || '{"title":"QA Course","enrollmentCode":"Replacement-82"}');
+  perform set_config('request.jwt.claim.sub', student, true);
+  begin
+    perform public.sls_workspace('enroll', course || '{"enrollmentCode":"FixtureCode-26"}');
+    raise exception 'Student enrolled using a replaced code';
+  exception when insufficient_privilege then null;
+  end;
+  perform public.sls_workspace('enroll',course || '{"enrollmentCode":"Replacement-82"}');
+  perform public.sls_workspace('enroll',course || '{"enrollmentCode":"FixtureCode-26"}');
   view_data := public.sls_workspace('course', course);
   assert view_data->'lessons'->0->>'text' = 'Protected test text';
   lesson_id := view_data->'lessons'->0->>'id';
