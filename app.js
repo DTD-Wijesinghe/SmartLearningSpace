@@ -873,7 +873,11 @@
           <p class="muted">${register ? 'Join your learning workspace or request teacher access.' : 'Access your courses and pick up where you left off.'}</p>
           ${!register && new URLSearchParams(location.search).get('password') === 'updated' ? '<p class="auth-success" role="status">Password updated. Sign in with your new password.</p>' : ''}
           ${form(register ? 'register' : 'login', fields, register ? 'Register' : 'Sign in')}
-          <div class="auth-links">${register ? '<a href="/login" data-link>Already registered? Sign in</a>' : '<a href="/forgot-password" data-link>Forgot password?</a><a href="/register" data-link>Create an account</a>'}</div>
+          ${register ? '<div class="auth-links"><a href="/login" data-link>Already registered? Sign in</a></div>' :
+            `<div class="auth-links auth-actions">
+              <button class="secondary" type="button" data-auth-page="/forgot-password">Forgot password?</button>
+              <button class="secondary" type="button" data-auth-page="/register">Create an account</button>
+            </div>`}
         </div>
         <figure class="auth-art"><img src="/assets/teaching-studio.webp" alt="An educator preparing a lesson at her desk" width="1200" height="800">
           <figcaption>Your Space for<br>Smarter Learning.</figcaption></figure>
@@ -1089,7 +1093,7 @@
   }
 
   document.addEventListener('click', async event => {
-    const control = event.target.closest('[data-link],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-remove-question],[data-provider-action],[data-live-control],[data-notification-refresh],[data-payment-open],[data-generate-enrollment-code]');
+    const control = event.target.closest('[data-link],[data-auth-page],[data-theme],[data-logout],[data-retry],[data-password-toggle],[data-jump],[data-add-question],[data-remove-question],[data-provider-action],[data-live-control],[data-notification-refresh],[data-payment-open],[data-generate-enrollment-code]');
     if (!control) return;
     if (control.hasAttribute('data-link')) {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -1097,6 +1101,9 @@
       if (control.dataset.noticeId && !classRecorder)
         await api('communications/read', { notificationId: control.dataset.noticeId }).catch(() => {});
       go(control.getAttribute('href'));
+    } else if (control.hasAttribute('data-auth-page')) {
+      go(control.dataset.authPage);
+      main.focus();
     } else if (control.hasAttribute('data-generate-enrollment-code')) {
       const field = control.form.elements.enrollmentCode;
       field.value = crypto.randomUUID();
